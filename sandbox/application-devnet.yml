@@ -1,0 +1,38 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# Spring Boot profile: devnet
+#
+# Mounted into the uverify-backend container at /app/application-devnet.yml.
+# Activated by SPRING_ACTIVE_PROFILES=devnet,postgres in .env.
+#
+# Overrides the YACI Store sync parameters so the embedded indexer follows
+# the local YACI DevKit devnet (slot 0, protocol-magic 42) instead of the
+# hardcoded preprod or mainnet slots in the main application.yml.
+# ══════════════════════════════════════════════════════════════════════════════
+spring:
+  config:
+    activate:
+      on-profile: devnet
+
+store:
+  sync-auto-start: ${YACI_STORE_AUTO_START:true}
+  cardano:
+    host: ${REMOTE_NODE_URL:yaci-node}
+    port: ${REMOTE_NODE_PORT:13337}
+    # yaci node-app devnet uses protocol magic 42
+    protocol-magic: ${PROTOCOL_MAGIC:42}
+    # Sync from genesis — unset any custom start point inherited from the base config
+    # so YACI Store uses its own genesis-based defaults for the devnet.
+    sync-start-slot: 0
+    sync-start-blockhash: ~
+    sync-auto-start: ${YACI_STORE_AUTO_START:true}
+    # Genesis files shared from the yaci-node container via the yaci_genesis volume
+    byron-genesis-file: /app/genesis/network/devnet/byron-genesis.json
+    shelley-genesis-file: /app/genesis/network/devnet/shelley-genesis.json
+    alonzo-genesis-file: /app/genesis/network/devnet/alonzo-genesis.json
+    conway-genesis-file: /app/genesis/network/devnet/conway-genesis.json
+
+cardano:
+  service:
+    user:
+      address: ${SERVICE_USER_ADDRESS:addr_test1qqgmew8y57fsfc3me40zha3gjplehxv0gwgz7sw3mdpenqgs8flgvgd7y0mwwkk5p96a8hfdptxrawepr2evqhl2aj3sr9vgye}
+

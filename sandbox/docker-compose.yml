@@ -1,0 +1,88 @@
+services:
+
+  # ── Local Cardano devnet (yaci node-app) ──────────────────────────────────────
+  # Provides: Cardano block producer (N2N on 13337) + Blockfrost-compatible REST
+  # API (port 8080) + devnet faucet + snapshot/restore endpoints.
+  yaci-node:
+    build: ./yaci-node
+    image: bloxbean/yaci-node:latest
+    container_name: bloxbean-yaci-node
+    restart: unless-stopped
+    # Copy genesis files into the shared volume before starting the node so that
+    # uverify-backend (YACI Store) can reference them via store.cardano.*-genesis-file.
+    entrypoint: ["/bin/sh", "-c", "cp -r /app/config/. /app/shared-genesis/ && exec java -Dquarkus.profile=devnet -Dyaci.node.tx-evaluation.enabled=true -jar yaci-node.jar"]
+    ports:
+      - "8080:8080"    # Blockfrost-compatible REST API + Swagger UI (/q/swagger-ui)
+      - "13337:13337"  # Cardano N2N server (used by YACI Store in uverify-backend)
+    volumes:
+      - yaci_chainstate:/app/chainstate
+      - yaci_genesis:/app/shared-genesis
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/q/health/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15
+    container_name: uverify-sandbox-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: uverify
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-sandbox_password}
+      POSTGRES_DB: uverify
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U uverify"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  # ── UVerify Backend ───────────────────────────────────────────────────────────
+  # Mounts application-devnet.yml so the embedded YACI Store syncs from slot 0
+  # against the local devnet node instead of preprod/mainnet.
+  uverify-backend:
+    image: uverify/uverify-backend:latest
+    container_name: uverify-sandbox-backend
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./application-devnet.yml:/app/application-devnet.yml
+      - yaci_genesis:/app/genesis:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      yaci-node:
+        condition: service_healthy
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9090/actuator/health | grep -q UP || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 45s
+
+  # ── UVerify UI ────────────────────────────────────────────────────────────────
+  uverify-ui:
+    image: uverify/uverify-ui:latest
+    container_name: uverify-sandbox-ui
+    restart: unless-stopped
+    environment:
+      VITE_BACKEND_URL: http://localhost:9090
+      VITE_CARDANO_NETWORK: preprod
+    depends_on:
+      uverify-backend:
+        condition: service_healthy
+    ports:
+      - "3000:80"
+
+volumes:
+  yaci_chainstate:
+  yaci_genesis:
+  postgres_data:

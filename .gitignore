@@ -1,0 +1,62 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build output
+dist/
+**/dist/
+
+# Environment variables & secrets
+.env
+.env.local
+.env.*.local
+wallet.txt
+**/wallet.txt
+*.key
+*.pem
+*.mnemonic
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Python
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+*.dist-info/
+
+# Java / Maven
+target/
+**/target/
+*.class
+*.jar
+*.war
+*.ear
+.classpath
+.project
+.settings/
+*.iml
+*.iws
+*.ipr

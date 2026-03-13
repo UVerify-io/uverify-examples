@@ -1,0 +1,15 @@
+{
+  "name": "uverify-sandbox-bootstrap",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@meshsdk/core": "^1.7.4",
+    "@meshsdk/wallet": "^1.7.4",
+    "dotenv": "^16.4.5"
+  },
+    "overrides": {
+    "libsodium-wrappers-sumo": "0.7.15",
+    "libsodium-wrappers": "0.7.15"
+  }
+}

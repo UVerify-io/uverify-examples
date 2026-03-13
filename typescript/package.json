@@ -1,0 +1,36 @@
+{
+  "name": "uverify-typescript-examples",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "sdk:build": "npm --prefix ../../uverify-sdks/typescript run build",
+    "sdk:dev": "npm --prefix ../../uverify-sdks/typescript run dev",
+    "notary": "npm run sdk:build && npx tsx src/examples/notary",
+    "diploma": "npm run sdk:build && npx tsx src/examples/diploma",
+    "digital-product-passport": "npm run sdk:build && npx tsx src/examples/digital_product_passport",
+    "laboratory-report": "npm run sdk:build && npx tsx src/examples/laboratory_report",
+    "pet-necklace": "npm run sdk:build && npx tsx src/examples/pet_necklace",
+    "product-verification": "npm run sdk:build && npx tsx src/examples/product_verification"
+  },
+  "author": "",
+  "license": "MIT",
+  "description": "",
+  "dependencies": {
+    "@meshsdk/core": "^1.9.0-beta.101",
+    "@meshsdk/wallet": "^2.0.0-beta.5",
+    "@uverify/sdk": "file:../../uverify-sdks/typescript",
+    "bip39": "^3.1.0",
+    "js-sha256": "^0.11.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.3",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "libsodium-wrappers-sumo": "0.7.15",
+    "libsodium-wrappers": "0.7.15"
+  }
+}
