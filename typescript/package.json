@@ -11,7 +11,8 @@
     "digital-product-passport": "npm run sdk:build && npx tsx src/examples/digital_product_passport",
     "laboratory-report": "npm run sdk:build && npx tsx src/examples/laboratory_report",
     "pet-necklace": "npm run sdk:build && npx tsx src/examples/pet_necklace",
-    "product-verification": "npm run sdk:build && npx tsx src/examples/product_verification"
+    "product-verification": "npm run sdk:build && npx tsx src/examples/product_verification",
+    "certificate-of-insurance": "npm run sdk:build && npx tsx src/examples/certificate_of_insurance"
   },
   "author": "",
   "license": "MIT",
