@@ -5,7 +5,6 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 const WALLET_FILE = 'wallet.txt';
 const CEXPLORER_TX_URL = 'https://preprod.cexplorer.io/tx';
 
-// The insurance company issuing this COI
 const INSURER = 'Acme Insurance AG';
 const PRODUCER = 'Schmidt Insurance Brokers';
 
@@ -27,18 +26,16 @@ if (isNew) {
   console.log('Restored wallet:', address, '\n');
 }
 
-// TechBuild GmbH is a contractor that needs to prove insurance coverage
-// to the City of Berlin before starting a public works project.
 const coi = {
-  policyNumber: 'AI-GL-2025-042891',
+  policyNumber: 'AI-GL-2025-049891',
   insurer: INSURER,
   producer: PRODUCER,
   insured: 'TechBuild GmbH',
-  insuredAddress: 'Unter den Linden 12, 10117 Berlin, Germany',
+  insuredAddress: 'Unter den Linden 12, 10117 Musterstadt, Germany',
   effectiveDate: '2025-01-01',
-  expirationDate: '2026-01-01',
-  certificateHolder: 'City of Berlin — Department of Infrastructure',
-  certificateHolderAddress: 'Berliner Str. 1, 10117 Berlin, Germany',
+  expirationDate: '2027-01-01',
+  certificateHolder: 'City of Musterstadt — Department of Infrastructure',
+  certificateHolderAddress: 'Musterstadt Str. 1, 10117 Musterstadt, Germany',
   additionalInsured: true,
   waiverOfSubrogation: false,
   coverages: {

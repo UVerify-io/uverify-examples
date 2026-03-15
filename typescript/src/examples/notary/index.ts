@@ -11,7 +11,6 @@ const WALLET_FILE = 'wallet.txt';
 const VERIFY_URL = 'https://app.preprod.uverify.io/verify';
 const CEXPLORER_TX_URL = 'https://preprod.cexplorer.io/tx';
 
-// Restore wallet from wallet.txt, or create and fund a new one
 const isNew = !existsSync(WALLET_FILE);
 const wallet = isNew
   ? await createWallet()
@@ -50,8 +49,6 @@ async function certify(hash: string, metadata: Record<string, string | number>) 
   }
 }
 
-// 1 – Any file on disk (PDF, image, text, …)
-// Replace sample_document.txt with your own file.
 console.log('Certifying file …');
 const fileBytes = readFileSync(join(__dir, 'sample_document.txt'));
 await certify(sha256(fileBytes), {
@@ -59,7 +56,6 @@ await certify(sha256(fileBytes), {
   path: 'https://username:password@example.tld/files/sample_document.txt',
 });
 
-// 2 – Legal contract as plain text
 console.log('Certifying contract …');
 const contract = `SERVICE AGREEMENT
 
@@ -80,7 +76,6 @@ await certify(sha256(contract), {
   date: new Date().toISOString().slice(0, 10),
 });
 
-// 3 – Original song lyrics
 console.log('Certifying song …');
 const song = `The Immutable Record
 
