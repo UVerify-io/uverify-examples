@@ -10,11 +10,12 @@ dist/
 .env
 .env.local
 .env.*.local
-wallet.txt
-**/wallet.txt
+*wallet.txt
+**/*wallet.txt
 *.key
 *.pem
 *.mnemonic
+tokenizable_certificate_seed_utxo.txt
 
 # Logs
 *.log
