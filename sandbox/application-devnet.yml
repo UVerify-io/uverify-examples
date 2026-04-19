@@ -16,7 +16,7 @@ spring:
 store:
   sync-auto-start: ${YACI_STORE_AUTO_START:true}
   cardano:
-    host: ${REMOTE_NODE_URL:yaci-node}
+    host: ${REMOTE_NODE_URL:yano}
     port: ${REMOTE_NODE_PORT:13337}
     # yaci node-app devnet uses protocol magic 42
     protocol-magic: ${PROTOCOL_MAGIC:42}
@@ -25,7 +25,7 @@ store:
     sync-start-slot: 0
     sync-start-blockhash: ~
     sync-auto-start: ${YACI_STORE_AUTO_START:true}
-    # Genesis files shared from the yaci-node container via the yaci_genesis volume
+    # Genesis files shared from the yano container via the yaci_genesis volume
     byron-genesis-file: /app/genesis/network/devnet/byron-genesis.json
     shelley-genesis-file: /app/genesis/network/devnet/shelley-genesis.json
     alonzo-genesis-file: /app/genesis/network/devnet/alonzo-genesis.json
