@@ -1,2 +1,6 @@
 yano/snapshots/
 bootstrap/.env
+tmp/
+docker-compose.override.yml
+Dockerfile.sandbox-ui
+*-additional-templates.json

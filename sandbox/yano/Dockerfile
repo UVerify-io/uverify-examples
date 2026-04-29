@@ -15,6 +15,8 @@ WORKDIR /app
 COPY --from=builder /build/node-app/build/yano.jar yano.jar
 COPY --from=builder /build/node-app/config ./config
 COPY snapshots/uverify-base-state /app/snapshots/uverify-base-state
+# Override maxKESEvolutions so the devnet never hits KES expiry in practice
+COPY genesis/shelley-genesis.json /app/config/network/devnet/shelley-genesis.json
 
 EXPOSE 7070 13337
 

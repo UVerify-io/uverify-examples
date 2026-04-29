@@ -46,6 +46,20 @@ services:
         fi
       "
 
+  # ── Epoch catch-up (one-shot) ────────────────────────────────────────────────
+  # Advances the devnet chain to wall-clock time after yano starts. This aligns
+  # the chain's KES period with the real-world KES period, preventing the block
+  # producer from stalling with "KES period out of range" regardless of how long
+  # ago the snapshot was taken.
+  catch-up:
+    image: curlimages/curl:latest
+    container_name: uverify-sandbox-catch-up
+    restart: no
+    depends_on:
+      yano:
+        condition: service_healthy
+    command: curl -sf -X POST http://yano:7070/api/v1/devnet/epochs/catch-up
+
   # ── PostgreSQL ────────────────────────────────────────────────────────────────
   postgres:
     image: postgres:15
