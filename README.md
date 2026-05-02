@@ -2,56 +2,85 @@
 
 Official code examples for integrating [UVerify](https://uverify.io) — on-chain certificate anchoring on Cardano.
 
-All examples run against the **Cardano preprod testnet** out of the box. No tADA required — the UVerify faucet automatically funds your wallet on first run.
+Examples run against the **Cardano preprod testnet** by default. No tADA required — the UVerify faucet funds your wallet on first run. For fully local development, start the sandbox below.
+
+## Sandbox (local devnet)
+
+The sandbox runs a complete UVerify stack on your machine using Docker — Cardano devnet, backend, and UI — with contracts already deployed and funded.
+
+**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) 24+
+
+```bash
+./sandbox.sh start
+```
+
+```
+  Service                     URL
+  ─────────────────────────   ──────────────────────────────────────────
+  UVerify UI                  http://localhost:3000
+  UVerify Backend             http://localhost:9090
+  API docs (Swagger)          http://localhost:9090/swagger-ui
+  Chain viewer                http://localhost:3001
+  Yaci Store API              http://localhost:8080
+  Yano devnet API             http://localhost:7070/q/swagger-ui
+```
+
+```bash
+./sandbox.sh info      # show service status and URLs
+./sandbox.sh stop      # stop all services
+./sandbox.sh restart   # stop then start
+```
+
+To reset all persisted chain data and start fresh from the snapshot:
+
+```bash
+(cd sandbox && docker compose down -v)
+./sandbox.sh start
+```
 
 ## Examples
 
-Each language directory contains the same set of certificate templates:
+Each language directory contains the same set of certificate templates. Pick your language and run an example:
 
-| Template | Description |
-|---|---|
-| **Diploma** | Batch-issue academic diplomas |
-| **Digital Product Passport** | EU Digital Product Passport (DPP) |
-| **Laboratory Report** | GDPR-safe lab reports with measured values |
-| **Pet Necklace** | Lost-pet necklace with privacy-preserving owner data |
-| **Product Verification** | Product authentication certificate with QR-code URL |
-| **Notary** *(TypeScript only)* | Sign and anchor arbitrary documents |
-
-## Getting Started
-
-Pick your language and follow the setup instructions:
-
-- [TypeScript](typescript/) — Node.js, uses `@uverify/sdk`
-- [Python](python/) — Python 3.8+, uses `uverify-sdk`
-- [Java](java/) — Java 11+ / Maven, uses `io.uverify:uverify-sdk`
-
-On first run, each example automatically:
-
-1. Generates a wallet and saves the mnemonic to `wallet.txt`
-2. Requests tADA from the UVerify faucet
-3. Issues certificates to the preprod testnet
-4. Prints a verification deep link to `https://app.preprod.uverify.io`
-
-## Local Sandbox (Work in Progress)
-
-The [sandbox/](sandbox/) directory contains a fully self-contained local development environment based on Docker and [YACI DevKit](https://github.com/bloxbean/yaci-devkit). It runs a complete UVerify stack — Cardano devnet, backend, and UI — entirely on your machine.
-
-> **Status:** The sandbox is currently work in progress. Use preprod for all examples.
-
-**Quick start (once stable):**
+### TypeScript (Deno)
 
 ```bash
-cd sandbox
-cp .env.example .env
-./start.sh
+cd typescript/notary
+deno run -A index.ts
 ```
 
-| Service | URL |
+| Example | Description |
 |---|---|
-| UVerify UI | http://localhost:3000 |
-| UVerify API | http://localhost:9090 |
-| Swagger Docs | http://localhost:9090/swagger-ui |
-| YACI DevKit | http://localhost:10000 |
+| [`notary/`](typescript/notary/) | Proof of existence for files, contracts, and creative works |
+| [`diploma/`](typescript/diploma/) | Batch-issue academic degree certificates |
+| [`laboratory_report/`](typescript/laboratory_report/) | Privacy-preserving lab report certification |
+| [`certificate_of_insurance/`](typescript/certificate_of_insurance/) | Insurance certificate issuance |
+| [`digital_product_passport/`](typescript/digital_product_passport/) | EU Digital Product Passport |
+| [`pet_necklace/`](typescript/pet_necklace/) | QR-code pet ID necklace tags |
+| [`product_verification/`](typescript/product_verification/) | Anti-counterfeiting product authentication |
+| [`document_integrity/`](typescript/document_integrity/) | File integrity verification with drag-and-drop |
+| [`tokenizable_certificate/`](typescript/tokenizable_certificate/) | Issue and redeem CIP-68 NFT certificates |
+
+### Python
+
+```bash
+cd python/<example>
+pip install -r requirements.txt
+python main.py
+```
+
+See [`python/`](python/) for available examples.
+
+### Java
+
+```bash
+cd java/<example>
+mvn compile exec:java
+```
+
+See [`java/`](java/) for available examples.
+
+On first run each example generates a wallet, requests tADA from the UVerify faucet, issues certificates, and prints a verification link to `https://app.preprod.uverify.io`.
 
 ## Links
 
