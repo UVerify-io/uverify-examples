@@ -1,0 +1,26 @@
+# Yaci Node - Override Configuration
+# ------------------------------------
+# Properties here override the defaults bundled in the jar.
+# Quarkus automatically loads this file from the config/ directory.
+
+quarkus:
+  http:
+    port: 7070
+  log:
+    console:
+      format: "%d{yyyy-MM-dd HH:mm:ss,SSS} %-5p [%c{3.}] (%t) %s%e%n"
+    file:
+      enable: true
+      path: ./yano.log
+      format: "%d{yyyy-MM-dd HH:mm:ss,SSS} %-5p [%c{3.}] (%t) %s%e%n"
+
+yaci:
+  node:
+    exit-on-epoch-calc-error: false
+    snapshot-export:
+      enabled: false
+      dir: data
+      stake: false
+      drep-dist: true
+      adapot: true
+      proposals: true

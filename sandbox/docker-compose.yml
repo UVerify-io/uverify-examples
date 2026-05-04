@@ -8,9 +8,6 @@ services:
     image: uverify/sandbox-node:latest
     container_name: bloxbean-yano
     restart: unless-stopped
-    depends_on:
-      seed-chainstate:
-        condition: service_completed_successfully
     ports:
       - "7070:7070"    # Blockfrost-compatible REST API + Swagger UI (/q/swagger-ui)
       - "13337:13337"  # Cardano N2N server (used by YACI Store in uverify-backend)
@@ -23,42 +20,6 @@ services:
       timeout: 5s
       retries: 30
       start_period: 60s
-
-  # ── Chainstate seeder (one-shot) ─────────────────────────────────────────────
-  # Copies the uverify-base-state snapshot files into the yaci_chainstate volume
-  # BEFORE yano starts. This ensures yano boots from the known good chain state
-  # rather than producing a fresh genesis block on an empty volume.
-  # Only copies if the chainstate is empty (CURRENT file absent).
-  seed-chainstate:
-    image: uverify/sandbox-node:latest
-    container_name: uverify-sandbox-seed-chainstate
-    restart: no
-    volumes:
-      - yaci_chainstate:/chainstate
-    command: >
-      sh -c "
-        if [ ! -f /chainstate/CURRENT ]; then
-          echo 'Seeding chainstate from snapshot...';
-          cp -a /app/snapshots/uverify-base-state/checkpoint/. /chainstate/;
-          echo 'Done.';
-        else
-          echo 'Chainstate already populated, skipping seed.';
-        fi
-      "
-
-  # ── Epoch catch-up (one-shot) ────────────────────────────────────────────────
-  # Advances the devnet chain to wall-clock time after yano starts. This aligns
-  # the chain's KES period with the real-world KES period, preventing the block
-  # producer from stalling with "KES period out of range" regardless of how long
-  # ago the snapshot was taken.
-  catch-up:
-    image: curlimages/curl:latest
-    container_name: uverify-sandbox-catch-up
-    restart: no
-    depends_on:
-      yano:
-        condition: service_healthy
-    command: curl -sf -X POST http://yano:7070/api/v1/devnet/epochs/catch-up
 
   # ── PostgreSQL ────────────────────────────────────────────────────────────────
   postgres:
@@ -98,6 +59,10 @@ services:
         condition: service_healthy
     ports:
       - "9090:9090"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:9090/actuator/health | grep -q UP || exit 1"]
       interval: 10s
@@ -124,6 +89,10 @@ services:
         condition: service_healthy
     ports:
       - "8080:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/api/v1/blocks/latest || exit 1"]
       interval: 15s

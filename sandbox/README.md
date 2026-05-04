@@ -21,13 +21,25 @@ Make sure Docker is running before you start.
 ```bash
 # 1 — Clone the repo (if you haven't already)
 git clone https://github.com/UVerify-io/uverify-examples.git
-cd uverify-examples/sandbox
+cd uverify-examples
 
 # 2 — Start the sandbox
-docker compose up -d
+./sandbox.sh start
 ```
 
 That's it. All services start automatically from the pre-built snapshot.
+
+---
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `./sandbox.sh start` | Start all sandbox services |
+| `./sandbox.sh start --clean` | Wipe all data and start fresh from the snapshot |
+| `./sandbox.sh stop` | Stop all sandbox services |
+| `./sandbox.sh restart` | Restart all sandbox services |
+| `./sandbox.sh info` | Show service status and URLs |
 
 ---
 
@@ -46,15 +58,14 @@ That's it. All services start automatically from the pre-built snapshot.
 
 ## How it works
 
-On startup Docker Compose runs the following sequence:
+`./sandbox.sh start` runs the following sequence:
 
-1. **seed-chainstate** — copies the bundled RocksDB snapshot into the `yaci_chainstate` volume (skipped if the volume is already populated)
-2. **yano** — starts the local Cardano block producer from the seeded chainstate
-3. **postgres** — starts PostgreSQL and creates the `uverify` and `yaci_store` schemas
-4. **uverify-backend** — starts the UVerify backend pointed at the local devnet
-5. **yaci-store** — starts the chain indexer and syncs forward from the snapshot
-6. **yaci-viewer** — starts the block explorer
-7. **uverify-ui** — starts the UVerify frontend
+1. If the chainstate volume is not yet populated, seeds it from the bundled RocksDB snapshot
+2. Starts all Docker Compose services
+3. Waits for the yano block producer to be ready
+4. Advances the devnet chain to wall-clock time (KES catch-up)
+
+This means the sandbox works correctly regardless of how long ago the snapshot was taken.
 
 ---
 
@@ -68,21 +79,17 @@ All settings live in `.env`. The most common values you might want to change:
 | `FAUCET_MNEMONIC` | `abandon … art` | Devnet faucet wallet |
 | `CONNECTED_GOODS_EXTENSION_ENABLED` | `false` | Enable the Connected Goods extension |
 
-> **Warning:** The mnemonic phrases in `.env.example` are publicly known test wallets used only on the local devnet. **Never use them on mainnet or preprod.**
+> **Warning:** The mnemonic phrases in `.env` are publicly known test wallets used only on the local devnet. **Never use them on mainnet or preprod.**
 
 ---
 
 ## Resetting the sandbox
 
 ```bash
-# Stop all containers and wipe all persisted data
-docker compose down -v
-
-# Start fresh from the snapshot
-docker compose up -d
+./sandbox.sh start --clean
 ```
 
-The chainstate is automatically re-seeded from the bundled snapshot on the next start.
+This stops all services, wipes all persisted data (chainstate, PostgreSQL, indexes), and starts fresh from the bundled snapshot.
 
 ---
 
@@ -97,13 +104,13 @@ If any port is already in use, edit the `ports:` mappings in `docker-compose.yml
 yaci-store occasionally stops syncing after a prolonged yano disconnection. Restart it:
 
 ```bash
-docker compose restart yaci-store
+docker compose -f sandbox/docker-compose.yml restart yaci-store
 ```
 
 **View logs for a specific service**
 
 ```bash
-docker compose logs -f uverify-backend
-docker compose logs -f yaci-store
-docker compose logs -f yano
+docker compose -f sandbox/docker-compose.yml logs -f uverify-backend
+docker compose -f sandbox/docker-compose.yml logs -f yaci-store
+docker compose -f sandbox/docker-compose.yml logs -f yano
 ```

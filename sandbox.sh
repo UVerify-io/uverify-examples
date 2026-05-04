@@ -3,9 +3,50 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SANDBOX_DIR="$SCRIPT_DIR/sandbox"
+PROJECT="sandbox"
+CHAINSTATE_VOLUME="${PROJECT}_yaci_chainstate"
 
 _compose() {
   (cd "$SANDBOX_DIR" && docker compose "$@")
+}
+
+# Marker file written after a successful seed. Avoids spinning up a container
+# for the check, which can leave orphaned containers on macOS Docker Desktop.
+SEED_MARKER="$SANDBOX_DIR/.chainstate-seeded"
+
+_chainstate_populated() {
+  [ -f "$SEED_MARKER" ] && docker volume inspect "$CHAINSTATE_VOLUME" > /dev/null 2>&1
+}
+
+_seed_chainstate() {
+  printf "  Seeding chainstate from snapshot..."
+  docker run --rm \
+    -v "${CHAINSTATE_VOLUME}:/chainstate" \
+    uverify/sandbox-node:latest \
+    sh -c "cp -a /app/snapshots/uverify-base-state/checkpoint/. /chainstate/"
+  touch "$SEED_MARKER"
+  printf " done.\n"
+}
+
+_wait_for_yano() {
+  printf "  Waiting for block producer"
+  local n=0
+  until curl -sf http://localhost:7070/q/health/ready > /dev/null 2>&1; do
+    n=$((n + 1))
+    if [ "$n" -ge 90 ]; then
+      printf "\n  Timed out waiting for yano.\n" >&2
+      return 1
+    fi
+    printf "."
+    sleep 2
+  done
+  printf " ready.\n"
+}
+
+_catch_up() {
+  printf "  Advancing chain to wall-clock time..."
+  curl -sf -X POST http://localhost:7070/api/v1/devnet/epochs/catch-up > /dev/null
+  printf " done.\n"
 }
 
 _print_status() {
@@ -41,38 +82,52 @@ _print_status() {
 _print_urls() {
   printf "  %-26s  %s\n" "Service" "URL"
   printf "  %-26s  %s\n" "─────────────────────────" "──────────────────────────────────────────"
-  printf "  %-26s  %s\n" "UVerify UI"           "http://localhost:3000"
-  printf "  %-26s  %s\n" "UVerify Backend"      "http://localhost:9090"
-  printf "  %-26s  %s\n" "API docs (Swagger)"   "http://localhost:9090/swagger-ui"
-  printf "  %-26s  %s\n" "Chain viewer"         "http://localhost:3001"
-  printf "  %-26s  %s\n" "Yaci Store API"       "http://localhost:8080"
-  printf "  %-26s  %s\n" "Yano devnet API"      "http://localhost:7070/q/swagger-ui"
+  printf "  %-26s  %s\n" "UVerify UI"          "http://localhost:3000"
+  printf "  %-26s  %s\n" "UVerify Backend"     "http://localhost:9090"
+  printf "  %-26s  %s\n" "API docs (Swagger)"  "http://localhost:9090/swagger-ui"
+  printf "  %-26s  %s\n" "Chain viewer"        "http://localhost:3001"
+  printf "  %-26s  %s\n" "Yaci Store API"      "http://localhost:8080"
+  printf "  %-26s  %s\n" "Yano devnet API"     "http://localhost:7070/q/swagger-ui"
   printf "\n"
+}
+
+_start() {
+  if [ "${1:-}" = "--clean" ]; then
+    printf "Cleaning sandbox data...\n"
+    _compose down -v
+    rm -f "$SEED_MARKER"
+    printf "\n"
+  fi
+
+  if ! _chainstate_populated; then
+    _seed_chainstate
+  fi
+
+  printf "Starting UVerify sandbox...\n"
+  _compose up -d
+  printf "\n"
+  _wait_for_yano
+  _catch_up
+  printf "\n"
+  _print_urls
+  printf "  All services are starting. Some may take up to a minute to become fully ready.\n"
+  printf "  Run './sandbox.sh info' at any time to check status.\n\n"
 }
 
 case "${1:-}" in
   start)
-    echo "Starting UVerify sandbox ..."
-    _compose up -d
-    printf "\n"
-    _print_urls
-    echo "  All services are starting. Some may take up to a minute to become ready."
-    echo "  Run './sandbox.sh info' at any time to check status."
-    printf "\n"
+    _start "${2:-}"
     ;;
   stop)
-    echo "Stopping UVerify sandbox ..."
+    printf "Stopping UVerify sandbox...\n"
     _compose down
-    echo "Done."
+    printf "Done.\n"
     ;;
   restart)
-    echo "Restarting UVerify sandbox ..."
+    printf "Restarting UVerify sandbox...\n"
     _compose down
-    _compose up -d
     printf "\n"
-    _print_urls
-    echo "  Run './sandbox.sh info' at any time to check status."
-    printf "\n"
+    _start
     ;;
   info)
     _print_status
@@ -83,10 +138,11 @@ case "${1:-}" in
     printf "  Usage: ./sandbox.sh <command>\n"
     printf "\n"
     printf "  Commands:\n"
-    printf "    start      Start all sandbox services\n"
-    printf "    stop       Stop all sandbox services\n"
-    printf "    restart    Restart all sandbox services\n"
-    printf "    info       Show service URLs and running status\n"
+    printf "    start           Start all sandbox services\n"
+    printf "    start --clean   Wipe all data and start fresh from the snapshot\n"
+    printf "    stop            Stop all sandbox services\n"
+    printf "    restart         Restart all sandbox services\n"
+    printf "    info            Show service status and URLs\n"
     printf "\n"
     exit 1
     ;;
