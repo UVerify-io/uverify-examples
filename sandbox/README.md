@@ -49,9 +49,10 @@ That's it. All services start automatically from the pre-built snapshot.
 |---------|-----|
 | UVerify UI | http://localhost:3000 |
 | UVerify Backend | http://localhost:9090 |
-| API docs (Swagger) | http://localhost:9090/swagger-ui |
+| API docs (Swagger) | http://localhost:9090/swagger-ui/index.html |
 | Yaci Viewer (block explorer) | http://localhost:3001 |
 | Yaci Store REST API | http://localhost:8080 |
+| Yaci Store (Swagger) | http://localhost:8080/swagger-ui/index.html |
 | Yano devnet API | http://localhost:7070/q/swagger-ui |
 
 ---

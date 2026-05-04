@@ -11,6 +11,7 @@
 import datetime
 import hashlib
 import json
+import os
 import sys
 import time
 import uuid
@@ -31,8 +32,46 @@ from pycardano.cip.cip8 import sign as cip8_sign
 from uverify_sdk import CertificateData, DataSignature, UVerifyClient, UVerifyTimeoutError, wait_for
 
 WALLET_FILE = Path("wallet.txt")
-VERIFY_URL = "https://app.preprod.uverify.io/verify"
-_NETWORK = Network.TESTNET
+def _load_dotenv():
+    env_file = Path(__file__).parent.parent / ".env"
+    try:
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, val = line.split("=", 1)
+            os.environ.setdefault(key.strip(), val.strip())
+    except FileNotFoundError:
+        pass
+
+
+_load_dotenv()
+
+_env_network = os.environ.get("UVERIFY_NETWORK", "sandbox")
+if _env_network == "mainnet":
+    _config = {
+        "network": Network.MAINNET,
+        "backend_url": "https://api.uverify.io",
+        "cexplorer_tx_url": "https://cexplorer.io/tx",
+        "verify_url": "https://app.uverify.io/verify",
+    }
+elif _env_network == "preprod":
+    _config = {
+        "network": Network.TESTNET,
+        "backend_url": "https://api.uverify.io",
+        "cexplorer_tx_url": "https://preprod.cexplorer.io/tx",
+        "verify_url": "https://app.preprod.uverify.io/verify",
+    }
+else:
+    _config = {
+        "network": Network.TESTNET,
+        "backend_url": "http://localhost:9090",
+        "cexplorer_tx_url": "http://localhost:3001",
+        "verify_url": "http://localhost:3000/verify",
+    }
+_NETWORK = _config["network"]
 _DERIVATION_PATH = "m/1852'/1815'/0'/0/0"
 
 
@@ -91,7 +130,7 @@ else:
     address, _, sign_message, sign_tx = create_wallet(WALLET_FILE.read_text().strip())
     mnemonic = None
 
-client = UVerifyClient(sign_message=sign_message, sign_tx=sign_tx)
+client = UVerifyClient(base_url=_config["backend_url"], sign_message=sign_message, sign_tx=sign_tx)
 
 if is_new:
     WALLET_FILE.write_text(mnemonic)
@@ -115,7 +154,7 @@ certify(client, address, doc_hash, {
     "type": "document",
     "path": "https://username:password@example.tld/files/sample_document.txt",
 })
-print(f"Certified! {VERIFY_URL}/{doc_hash}\n")
+print(f"Certified! {_config["verify_url"]}/{doc_hash}\n")
 
 # 2 — Certify a service agreement
 print("Certifying contract …")
@@ -136,7 +175,7 @@ certify(client, address, contract_hash, {
     "contract_server": "https://contracts.example.tld",
     "date":            today,
 })
-print(f"Certified! {VERIFY_URL}/{contract_hash}\n")
+print(f"Certified! {_config["verify_url"]}/{contract_hash}\n")
 
 # 3 — Certify song lyrics
 print("Certifying song …")
@@ -164,6 +203,6 @@ certify(client, address, song_hash, {
     "author": "Alice Smith",
     "date":   today,
 })
-print(f"Certified! {VERIFY_URL}/{song_hash}\n")
+print(f"Certified! {_config["verify_url"]}/{song_hash}\n")
 
 print("All certificates are permanently recorded on Cardano.")

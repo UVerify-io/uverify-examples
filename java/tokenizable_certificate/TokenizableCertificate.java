@@ -35,8 +35,38 @@ class TokenizableCertificate {
     static final Path WALLET_FILE           = Path.of("wallet.txt");
     static final Path RECIPIENT_WALLET_FILE = Path.of("recipient_wallet.txt");
     static final Path SEED_UTXO_FILE        = Path.of("seed_utxo.txt");
-    static final String BACKEND_URL         = "http://localhost:9090";
-    static final String CEXPLORER_TX_URL    = "https://preprod.cexplorer.io/tx";
+    static final String NETWORK;
+    static final String BACKEND_URL;
+    static final String CEXPLORER_TX_URL;
+    static final String CHAIN_VIEWER_URL;
+
+    static {
+        var dotEnv = new java.util.HashMap<String, String>();
+        try {
+            for (var line : Files.readAllLines(Path.of("../.env"))) {
+                var t = line.strip();
+                if (t.isEmpty() || t.startsWith("#")) continue;
+                int eq = t.indexOf('=');
+                if (eq >= 0) dotEnv.put(t.substring(0, eq).strip(), t.substring(eq + 1).strip());
+            }
+        } catch (Exception ignored) {}
+        String net = System.getenv().getOrDefault("UVERIFY_NETWORK",
+                         dotEnv.getOrDefault("UVERIFY_NETWORK", "sandbox"));
+        NETWORK = net;
+        if ("mainnet".equals(net)) {
+            BACKEND_URL      = "https://api.uverify.io";
+            CEXPLORER_TX_URL = "https://cexplorer.io/tx";
+            CHAIN_VIEWER_URL = "https://cexplorer.io";
+        } else if ("preprod".equals(net)) {
+            BACKEND_URL      = "https://api.uverify.io";
+            CEXPLORER_TX_URL = "https://preprod.cexplorer.io/tx";
+            CHAIN_VIEWER_URL = "https://preprod.cexplorer.io";
+        } else {
+            BACKEND_URL      = "http://localhost:9090";
+            CEXPLORER_TX_URL = "http://localhost:3001";
+            CHAIN_VIEWER_URL = "http://localhost:3001";
+        }
+    }
 
     public static void main(String[] args) throws Exception {
         if (args.length == 0 || (!args[0].equals("create") && !args[0].equals("redeem"))) {
@@ -152,7 +182,7 @@ class TokenizableCertificate {
             System.err.println(
                     "Error: no seed UTxO available.\n"
                     + "Provide --init-utxo-tx-hash and --init-utxo-output-index on the first run.\n"
-                    + "Find a UTxO in your issuer wallet via the Yaci chain viewer at http://localhost:3001.");
+                    + "Find a UTxO in your issuer wallet via the chain viewer at " + CHAIN_VIEWER_URL + ".");
             System.exit(1);
             return;
         }
@@ -278,7 +308,8 @@ class TokenizableCertificate {
                   - Recipient wallet is loaded from / saved to recipient_wallet.txt.
                   - Seed UTxO is loaded from / saved to seed_utxo.txt.
                     Provide --init-utxo-tx-hash and --init-utxo-output-index on first run
-                    (use the Yaci chain viewer at http://localhost:3001 to find a UTxO).""");
+                    (use the chain viewer at \
+                """ + CHAIN_VIEWER_URL + " to find a UTxO).");
     }
 
     static String paymentKeyHashFromAddress(String bech32) {
@@ -313,12 +344,12 @@ class TokenizableCertificate {
         }
 
         static Wallet create() {
-            Account account = new Account(Networks.testnet());
+            Account account = new Account("mainnet".equals(TokenizableCertificate.NETWORK) ? Networks.mainnet() : Networks.testnet());
             return from(account, account.mnemonic());
         }
 
         static Wallet from(String mnemonic) {
-            return from(new Account(Networks.testnet(), mnemonic), mnemonic);
+            return from(new Account("mainnet".equals(TokenizableCertificate.NETWORK) ? Networks.mainnet() : Networks.testnet(), mnemonic), mnemonic);
         }
 
         private static Wallet from(Account account, String mnemonic) {

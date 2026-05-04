@@ -11,6 +11,7 @@
 import argparse
 import hashlib
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -37,9 +38,49 @@ from uverify_sdk.apps.types import (
 WALLET_FILE = Path("wallet.txt")
 RECIPIENT_WALLET_FILE = Path("recipient_wallet.txt")
 SEED_UTXO_FILE = Path("seed_utxo.txt")
-BACKEND_URL = "http://localhost:9090"
-CEXPLORER_TX_URL = "https://preprod.cexplorer.io/tx"
-_NETWORK = Network.TESTNET
+def _load_dotenv():
+    env_file = Path(__file__).parent.parent / ".env"
+    try:
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, val = line.split("=", 1)
+            os.environ.setdefault(key.strip(), val.strip())
+    except FileNotFoundError:
+        pass
+
+
+_load_dotenv()
+
+_env_network = os.environ.get("UVERIFY_NETWORK", "sandbox")
+if _env_network == "mainnet":
+    _config = {
+        "network": Network.MAINNET,
+        "backend_url": "https://api.uverify.io",
+        "cexplorer_tx_url": "https://cexplorer.io/tx",
+        "chain_viewer_url": "https://cexplorer.io",
+        "verify_url": "https://app.uverify.io/verify",
+    }
+elif _env_network == "preprod":
+    _config = {
+        "network": Network.TESTNET,
+        "backend_url": "https://api.uverify.io",
+        "cexplorer_tx_url": "https://preprod.cexplorer.io/tx",
+        "chain_viewer_url": "https://preprod.cexplorer.io",
+        "verify_url": "https://app.preprod.uverify.io/verify",
+    }
+else:
+    _config = {
+        "network": Network.TESTNET,
+        "backend_url": "http://localhost:9090",
+        "cexplorer_tx_url": "http://localhost:3001",
+        "chain_viewer_url": "http://localhost:3001",
+        "verify_url": "http://localhost:3000/verify",
+    }
+_NETWORK = _config["network"]
 _DERIVATION_PATH = "m/1852'/1815'/0'/0/0"
 
 
@@ -146,7 +187,7 @@ else:
     )
 
 client = UVerifyClient(
-    base_url=BACKEND_URL,
+    base_url=_config["backend_url"],
     sign_message=issuer_sign_message,
     sign_tx=issuer_sign_tx,
 )
@@ -201,7 +242,7 @@ else:
     print(
         "Error: no seed UTxO available.\n"
         "Provide --init-utxo-tx-hash and --init-utxo-output-index on the first run.\n"
-        "Find a UTxO in your issuer wallet via the Yaci chain viewer at http://localhost:3001.",
+        f"Find a UTxO in your issuer wallet via the chain viewer at {_config['chain_viewer_url']}.",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -253,7 +294,7 @@ if args.command == "create":
             ),
         )
 
-        print(f"Transaction submitted: {CEXPLORER_TX_URL}/{result.tx_hash}")
+        print(f"Transaction submitted: {_config["cexplorer_tx_url"]}/{result.tx_hash}")
         wait_for(lambda: client.verify(key) or False, timeout_ms=300_000)
 
         print("Certificate confirmed on-chain.")
@@ -290,7 +331,7 @@ if args.command == "redeem":
             ),
             recipient_sign_tx,
         )
-        print(f"Transaction submitted: {CEXPLORER_TX_URL}/{tx_hash}")
+        print(f"Transaction submitted: {_config["cexplorer_tx_url"]}/{tx_hash}")
 
         wait_for(
             lambda: (

@@ -1,16 +1,54 @@
 import { Address, Bytes, COSE, PrivateKey, TransactionWitnessSet } from '@evolution-sdk/evolution';
 import { make as makeEvolutionClient } from '@evolution-sdk/evolution/sdk/client/Client';
-import { preprod } from '@evolution-sdk/evolution/sdk/client/Chain';
+import { mainnet, preprod } from '@evolution-sdk/evolution/sdk/client/Chain';
 import { addressFromSeed } from '@evolution-sdk/evolution/sdk/wallet/Derivation';
 import { UVerifyClient, WaitForTimeoutError } from '@uverify/sdk';
 
+try {
+  const envText = await Deno.readTextFile(new URL('../.env', import.meta.url));
+  for (const line of envText.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const val = trimmed.slice(eq + 1).trim();
+    if (!Deno.env.has(key)) Deno.env.set(key, val);
+  }
+} catch {
+  // .env not found, using defaults
+}
+
+const network = Deno.env.get('UVERIFY_NETWORK') ?? 'sandbox';
+const config = (() => {
+  if (network === 'mainnet') return {
+    evolutionChain: mainnet,
+    networkId: 1 as const,
+    backendUrl: 'https://api.uverify.io',
+    cexplorerTxUrl: 'https://cexplorer.io/tx',
+    verifyUrl: 'https://app.uverify.io/verify',
+  };
+  if (network === 'preprod') return {
+    evolutionChain: preprod,
+    networkId: 0 as const,
+    backendUrl: 'https://api.uverify.io',
+    cexplorerTxUrl: 'https://preprod.cexplorer.io/tx',
+    verifyUrl: 'https://app.preprod.uverify.io/verify',
+  };
+  return {
+    evolutionChain: preprod,
+    networkId: 0 as const,
+    backendUrl: 'http://localhost:9090',
+    cexplorerTxUrl: 'http://localhost:3001',
+    verifyUrl: 'http://localhost:3000/verify',
+  };
+})();
+
 const WALLET_FILE = new URL('./wallet.txt', import.meta.url);
-const VERIFY_URL = 'https://app.preprod.uverify.io/verify';
-const CEXPLORER_TX_URL = 'https://preprod.cexplorer.io/tx';
 
 function walletFromMnemonic(mnemonic: string) {
-  const evolutionClient = makeEvolutionClient(preprod).withSeed({ mnemonic, addressType: 'Enterprise' });
-  const { address: addressObj } = addressFromSeed(mnemonic, { addressType: 'Enterprise', networkId: 0 });
+  const evolutionClient = makeEvolutionClient(config.evolutionChain).withSeed({ mnemonic, addressType: 'Enterprise' });
+  const { address: addressObj } = addressFromSeed(mnemonic, { addressType: 'Enterprise', networkId: config.networkId });
   const addressHex = Address.toHex(addressObj);
   const addressBech32 = Address.toBech32(addressObj);
   const paymentKey = PrivateKey.fromMnemonicCardano(mnemonic);
@@ -52,7 +90,7 @@ const isNew = storedMnemonic === undefined;
 const wallet = isNew ? createWallet() : walletFromMnemonic(storedMnemonic!);
 const { address, signTx, signMessage, mnemonic } = wallet;
 
-const client = new UVerifyClient({ signMessage, signTx });
+const client = new UVerifyClient({ baseUrl: config.backendUrl, signMessage, signTx });
 const { waitFor, fundWallet, issueCertificates } = client;
 
 if (isNew) {
@@ -96,7 +134,7 @@ try {
   txHash = await issueCertificates(address, [
     { hash, algorithm: 'SHA-256', metadata: JSON.stringify(metadata) },
   ]);
-  console.log(`Transaction submitted: ${CEXPLORER_TX_URL}/${txHash}`);
+  console.log(`Transaction submitted: ${config.cexplorerTxUrl}/${txHash}`);
   await waitFor(txHash);
   console.log('Product authentication certificate confirmed on-chain.\n');
 } catch (error) {
@@ -111,5 +149,5 @@ try {
 }
 
 console.log('Product authentication URL (encode as QR code on the product label):');
-console.log(`  ${VERIFY_URL}/${hash}/${txHash}`);
+console.log(`  ${config.verifyUrl}/${hash}/${txHash}`);
 console.log('\nDone. The product authentication certificate is permanently anchored on Cardano.');

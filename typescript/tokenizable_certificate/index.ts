@@ -1,18 +1,56 @@
 import { Address, Bytes, COSE, PrivateKey, TransactionWitnessSet } from '@evolution-sdk/evolution';
 import { make as makeEvolutionClient } from '@evolution-sdk/evolution/sdk/client/Client';
-import { preprod } from '@evolution-sdk/evolution/sdk/client/Chain';
+import { mainnet, preprod } from '@evolution-sdk/evolution/sdk/client/Chain';
 import { addressFromSeed } from '@evolution-sdk/evolution/sdk/wallet/Derivation';
 import { UVerifyClient, WaitForTimeoutError } from '@uverify/sdk';
+
+try {
+  const envText = await Deno.readTextFile(new URL('../.env', import.meta.url));
+  for (const line of envText.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const val = trimmed.slice(eq + 1).trim();
+    if (!Deno.env.has(key)) Deno.env.set(key, val);
+  }
+} catch {
+  // .env not found, using defaults
+}
+
+const network = Deno.env.get('UVERIFY_NETWORK') ?? 'sandbox';
+const config = (() => {
+  if (network === 'mainnet') return {
+    evolutionChain: mainnet,
+    networkId: 1 as const,
+    backendUrl: 'https://api.uverify.io',
+    cexplorerTxUrl: 'https://cexplorer.io/tx',
+    chainViewerUrl: 'https://cexplorer.io',
+  };
+  if (network === 'preprod') return {
+    evolutionChain: preprod,
+    networkId: 0 as const,
+    backendUrl: 'https://api.uverify.io',
+    cexplorerTxUrl: 'https://preprod.cexplorer.io/tx',
+    chainViewerUrl: 'https://preprod.cexplorer.io',
+  };
+  return {
+    evolutionChain: preprod,
+    networkId: 0 as const,
+    backendUrl: 'http://localhost:9090',
+    cexplorerTxUrl: 'http://localhost:3001',
+    chainViewerUrl: 'http://localhost:3001',
+  };
+})();
 
 const WALLET_FILE = new URL('./wallet.txt', import.meta.url);
 const RECIPIENT_WALLET_FILE = new URL('./recipient_wallet.txt', import.meta.url);
 const SEED_UTXO_FILE = new URL('./seed_utxo.txt', import.meta.url);
-const CEXPLORER_TX_URL = 'https://preprod.cexplorer.io/tx';
-const BACKEND_URL = 'http://localhost:9090';
 
 function walletFromMnemonic(mnemonic: string) {
-  const evolutionClient = makeEvolutionClient(preprod).withSeed({ mnemonic, addressType: 'Enterprise' });
-  const { address: addressObj } = addressFromSeed(mnemonic, { addressType: 'Enterprise', networkId: 0 });
+  const evolutionClient = makeEvolutionClient(config.evolutionChain).withSeed({ mnemonic, addressType: 'Enterprise' });
+  const { address: addressObj } = addressFromSeed(mnemonic, { addressType: 'Enterprise', networkId: config.networkId });
   const addressHex = Address.toHex(addressObj);
   const addressBech32 = Address.toBech32(addressObj);
   const paymentKey = PrivateKey.fromMnemonicCardano(mnemonic);
@@ -74,7 +112,7 @@ function printUsage(): void {
     '  - Recipient wallet is loaded from / saved to recipient_wallet.txt.\n' +
     '  - Seed UTxO is loaded from / saved to seed_utxo.txt.\n' +
     '    Provide --init-utxo-tx-hash and --init-utxo-output-index on first run\n' +
-    '    (use the Yaci chain viewer at http://localhost:3001 to find a UTxO).',
+    `    (use the chain viewer at ${config.chainViewerUrl} to find a UTxO).`,
   );
 }
 
@@ -128,7 +166,7 @@ const issuerIsNew = issuerMnemonic === undefined;
 const issuerWallet = issuerIsNew ? createWallet() : walletFromMnemonic(issuerMnemonic!);
 const { address: issuerAddress, signTx, signMessage, mnemonic: issuerMnemonic2 } = issuerWallet;
 
-const client = new UVerifyClient({ baseUrl: BACKEND_URL, signMessage, signTx });
+const client = new UVerifyClient({ baseUrl: config.backendUrl, signMessage, signTx });
 const { waitFor, fundWallet } = client;
 
 if (issuerIsNew) {
@@ -189,7 +227,7 @@ if (argTxHash && argOutputIndex !== undefined) {
     console.error(
       'Error: no seed UTxO available.\n' +
       'Provide --init-utxo-tx-hash and --init-utxo-output-index on the first run.\n' +
-      'Find a UTxO in your issuer wallet via the Yaci chain viewer at http://localhost:3001.',
+      `Find a UTxO in your issuer wallet via the chain viewer at ${config.chainViewerUrl}.`,
     );
     Deno.exit(1);
   }
@@ -236,7 +274,7 @@ if (command === 'create') {
       },
     });
 
-    console.log(`Transaction submitted: ${CEXPLORER_TX_URL}/${result.txHash}`);
+    console.log(`Transaction submitted: ${config.cexplorerTxUrl}/${result.txHash}`);
     await waitFor(result.txHash);
     console.log('Certificate confirmed on-chain.');
     console.log(`Verify at: ${result.verifyUrl}`);
@@ -270,7 +308,7 @@ if (command === 'redeem') {
       recipientWallet.signTx,
     );
 
-    console.log(`Transaction submitted: ${CEXPLORER_TX_URL}/${txHash}`);
+    console.log(`Transaction submitted: ${config.cexplorerTxUrl}/${txHash}`);
     await client.waitFor(txHash);
     console.log('Certificate successfully redeemed on-chain.');
 

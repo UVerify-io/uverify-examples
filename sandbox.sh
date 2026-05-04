@@ -84,9 +84,10 @@ _print_urls() {
   printf "  %-26s  %s\n" "─────────────────────────" "──────────────────────────────────────────"
   printf "  %-26s  %s\n" "UVerify UI"          "http://localhost:3000"
   printf "  %-26s  %s\n" "UVerify Backend"     "http://localhost:9090"
-  printf "  %-26s  %s\n" "API docs (Swagger)"  "http://localhost:9090/swagger-ui"
+  printf "  %-26s  %s\n" "API docs (Swagger)"  "http://localhost:9090/swagger-ui/index.html"
   printf "  %-26s  %s\n" "Chain viewer"        "http://localhost:3001"
   printf "  %-26s  %s\n" "Yaci Store API"      "http://localhost:8080"
+  printf "  %-26s  %s\n" "Yaci Store (Swagger)" "http://localhost:8080/swagger-ui/index.html"
   printf "  %-26s  %s\n" "Yano devnet API"     "http://localhost:7070/q/swagger-ui"
   printf "\n"
 }
@@ -95,6 +96,7 @@ _start() {
   if [ "${1:-}" = "--clean" ]; then
     printf "Cleaning sandbox data...\n"
     _compose down -v
+    docker volume rm "${CHAINSTATE_VOLUME}" 2>/dev/null || true
     rm -f "$SEED_MARKER"
     printf "\n"
   fi
@@ -104,7 +106,7 @@ _start() {
   fi
 
   printf "Starting UVerify sandbox...\n"
-  _compose up -d
+  _compose up -d --remove-orphans
   printf "\n"
   _wait_for_yano
   _catch_up

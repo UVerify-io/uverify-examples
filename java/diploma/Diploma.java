@@ -25,6 +25,25 @@ class Diploma {
     static final Path WALLET_FILE = Path.of("wallet.txt");
     static final String INSTITUTION = "Technical University of Munich";
 
+    static final String NETWORK;
+    static final String BACKEND_URL;
+
+    static {
+        var dotEnv = new java.util.HashMap<String, String>();
+        try {
+            for (var line : Files.readAllLines(Path.of("../.env"))) {
+                var t = line.strip();
+                if (t.isEmpty() || t.startsWith("#")) continue;
+                int eq = t.indexOf('=');
+                if (eq >= 0) dotEnv.put(t.substring(0, eq).strip(), t.substring(eq + 1).strip());
+            }
+        } catch (Exception ignored) {}
+        String net = System.getenv().getOrDefault("UVERIFY_NETWORK",
+                         dotEnv.getOrDefault("UVERIFY_NETWORK", "sandbox"));
+        NETWORK = net;
+        BACKEND_URL = "sandbox".equals(net) ? "http://localhost:9090" : "https://api.uverify.io";
+    }
+
     public static void main(String[] args) throws Exception {
         boolean isNew = !Files.exists(WALLET_FILE);
         var wallet = isNew
@@ -32,6 +51,7 @@ class Diploma {
                 : Wallet.from(Files.readString(WALLET_FILE).strip());
 
         var client = UVerifyClient.builder()
+                .baseUrl(BACKEND_URL)
                 .signMessage(wallet.signMessage)
                 .signTx(wallet.signTx)
                 .build();
@@ -102,12 +122,12 @@ class Diploma {
         }
 
         static Wallet create() {
-            Account account = new Account(Networks.testnet());
+            Account account = new Account("mainnet".equals(Diploma.NETWORK) ? Networks.mainnet() : Networks.testnet());
             return from(account, account.mnemonic());
         }
 
         static Wallet from(String mnemonic) {
-            return from(new Account(Networks.testnet(), mnemonic), mnemonic);
+            return from(new Account("mainnet".equals(Diploma.NETWORK) ? Networks.mainnet() : Networks.testnet(), mnemonic), mnemonic);
         }
 
         private static Wallet from(Account account, String mnemonic) {

@@ -129,5 +129,7 @@ services:
 
 volumes:
   yaci_chainstate:
+    external: true
+    name: sandbox_yaci_chainstate
   yaci_genesis:
   postgres_data:
