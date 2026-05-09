@@ -8,10 +8,31 @@ Examples run against the **Cardano preprod testnet** by default. No tADA require
 
 The sandbox runs a complete UVerify stack on your machine using Docker — Cardano devnet, backend, and UI — with contracts already deployed and funded.
 
-**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) 24+
+**Prerequisites:**
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) 24+
+- [uv](https://docs.astral.sh/uv/) — Python package manager
+
+Install uv on macOS:
 
 ```bash
-./sandbox.sh start
+# Homebrew
+brew install uv
+
+# or the official installer
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+On Windows, use the PowerShell installer:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Start the sandbox (uv installs Python dependencies automatically on first run):
+
+```bash
+uv run sandbox.py start
 ```
 
 ```
@@ -19,24 +40,70 @@ The sandbox runs a complete UVerify stack on your machine using Docker — Carda
   ─────────────────────────   ──────────────────────────────────────────
   UVerify UI                  http://localhost:3000
   UVerify Backend             http://localhost:9090
-  API docs (Swagger)          http://localhost:9090/swagger-ui
+  API docs (Swagger)          http://localhost:9090/swagger-ui/index.html
   Chain viewer                http://localhost:3001
   Yaci Store API              http://localhost:8080
+  Yaci Store (Swagger)        http://localhost:8080/swagger-ui/index.html
   Yano devnet API             http://localhost:7070/q/swagger-ui
 ```
 
+> **Note:** The UI compiles on first startup (usually 1–2 minutes). The other services are available immediately. Run `uv run sandbox.py info` to check when the UI is ready.
+
 ```bash
-./sandbox.sh info      # show service status and URLs
-./sandbox.sh stop      # stop all services
-./sandbox.sh restart   # stop then start
+uv run sandbox.py info      # show service status and URLs
+uv run sandbox.py stop      # stop all services
+uv run sandbox.py restart   # stop then start
 ```
 
 To reset all persisted chain data and start fresh from the snapshot:
 
 ```bash
-(cd sandbox && docker compose down -v)
-./sandbox.sh start
+uv run sandbox.py start --clean
 ```
+
+### Custom UI templates
+
+The sandbox UI is served by `uverify/uverify-ui:builder`, a Docker image that compiles the React app at container startup. This means you can add custom certificate templates by dropping files into `sandbox/custom-ui-templates/` — no access to the `uverify-ui` source code required.
+
+#### Scaffold a new template
+
+Node.js is required to scaffold templates (the UVerify CLI runs via `npx`):
+
+```bash
+uv run sandbox.py template add my-template
+```
+
+This creates `sandbox/custom-ui-templates/my-template/` with a working template project and registers it in `sandbox/custom-ui-templates/additional-templates.json`.
+
+Edit your template:
+
+```bash
+# open the generated certificate component
+open sandbox/custom-ui-templates/my-template/src/Certificate.tsx
+```
+
+Then restart the sandbox to compile it in:
+
+```bash
+uv run sandbox.py restart
+```
+
+The template appears in the template selector at `http://localhost:3000`.
+
+#### Manage templates
+
+```bash
+uv run sandbox.py templates              # list registered templates
+uv run sandbox.py template add <name>   # scaffold + register a new template
+uv run sandbox.py template rm  <name>   # remove a template (asks for confirmation)
+```
+
+#### How it works
+
+- `sandbox/custom-ui-templates/` is mounted into the builder container at `/app/custom-templates/`.
+- `sandbox/custom-ui-templates/additional-templates.json` declares which templates to include and where their entry files are.
+- At startup, `config.js` reads that file and generates the import wiring before Vite builds the app.
+- Both the template folder and `additional-templates.json` are excluded from git, so your local templates stay local.
 
 ## Examples
 
@@ -65,20 +132,19 @@ deno run -A index.ts
 
 ```bash
 cd python/<example>
-pip install -r requirements.txt
-python main.py
+uv run main.py
 ```
 
-See [`python/`](python/) for available examples.
+See [`python/`](python/) for available examples. No virtualenv or `pip install` needed — uv reads the inline dependency block at the top of each script.
 
 ### Java
 
 ```bash
 cd java/<example>
-mvn compile exec:java
+jbang ClassName.java
 ```
 
-See [`java/`](java/) for available examples.
+See [`java/`](java/) for available examples. Install [jbang](https://www.jbang.dev/download/) if you don't have it.
 
 On first run each example generates a wallet, requests tADA from the UVerify faucet, issues certificates, and prints a verification link to `https://app.preprod.uverify.io`.
 

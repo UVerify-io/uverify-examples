@@ -114,13 +114,18 @@ services:
       - "3001:3001"
 
   # ── UVerify UI ────────────────────────────────────────────────────────────────
+  # Uses the builder image which compiles the Vite app at container startup so
+  # that custom templates mounted into /app/src/templates are included in the build.
   uverify-ui:
-    image: uverify/uverify-ui:latest
+    image: uverify/uverify-ui:builder
     container_name: uverify-sandbox-ui
     restart: unless-stopped
     environment:
       VITE_BACKEND_URL: http://localhost:9090
       VITE_CARDANO_NETWORK: preprod
+    volumes:
+      - ./custom-ui-templates:/app/custom-templates
+      - ./custom-ui-templates/additional-templates.json:/app/additional-templates.json:ro
     depends_on:
       uverify-backend:
         condition: service_healthy
