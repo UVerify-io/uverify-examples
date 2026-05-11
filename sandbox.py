@@ -32,6 +32,8 @@ SEED_MARKER = SANDBOX_DIR / ".chainstate-seeded"
 CUSTOM_TEMPLATES_DIR = SANDBOX_DIR / "custom-ui-templates"
 ADDITIONAL_TEMPLATES_JSON = CUSTOM_TEMPLATES_DIR / "additional-templates.json"
 
+SIMULATOR_DIR = SANDBOX_DIR / "simulator"
+
 SERVICES = [
     ("uverify-sandbox-ui", "UVerify UI"),
     ("uverify-sandbox-backend", "UVerify Backend"),
@@ -337,6 +339,71 @@ def template_rm(
 
     console.print(f"[green]Template '{name}' removed.[/green]")
     console.print("Run [bold]uv run sandbox.py restart[/bold] to apply.")
+
+
+@app.command()
+def simulate(
+    template: str = typer.Option(..., "--template", help="UVerify template ID (e.g. productVerification)"),
+    plan: Path = typer.Option(None, "--plan", help="Plan JSON file; if omitted, --number is required"),
+    amount: int = typer.Option(None, "--amount", help="Number of metadata files to generate from the plan"),
+    number: int = typer.Option(None, "--number", help="Number of synthetic certificates (no plan file needed)"),
+    batch_size: int = typer.Option(1, "--batch-size", help="Certificates per transaction"),
+    output: Path = typer.Option(SIMULATOR_DIR / "output", "--output", help="Directory for generated metadata files"),
+) -> None:
+    """Generate metadata and submit certificates to the sandbox."""
+    deno = shutil.which("deno")
+    if not deno:
+        console.print("[red]deno not found — install Deno first (https://deno.com).[/red]")
+        raise typer.Exit(code=1)
+
+    if plan is not None and number is not None:
+        console.print("[red]--plan and --number are mutually exclusive.[/red]")
+        raise typer.Exit(code=1)
+
+    if plan is None and number is None:
+        console.print("[red]Provide either --plan <file> or --number <N>.[/red]")
+        raise typer.Exit(code=1)
+
+    if plan is not None and amount is None:
+        console.print("[red]--amount is required when using --plan.[/red]")
+        raise typer.Exit(code=1)
+
+    if plan is not None:
+        plan = plan.resolve()
+        if not plan.exists():
+            console.print(f"[red]Plan file not found: {plan}[/red]")
+            raise typer.Exit(code=1)
+
+        console.print(f"Generating [bold]{amount}[/bold] metadata file(s) from [bold]{plan}[/bold]...")
+        result = subprocess.run(
+            [
+                deno, "run", "--allow-read", "--allow-write",
+                str(SIMULATOR_DIR / "generate.ts"),
+                "--data", str(plan),
+                "--amount", str(amount),
+                "--destination", str(output.resolve()),
+            ],
+            cwd=SIMULATOR_DIR,
+        )
+        if result.returncode != 0:
+            raise typer.Exit(code=result.returncode)
+        console.print()
+
+    console.print(f"Submitting to template [bold]{template}[/bold] (batch-size={batch_size})...")
+    submit_args = [
+        deno, "run", "--allow-all",
+        str(SIMULATOR_DIR / "submit.ts"),
+        "--template", template,
+        "--batch-size", str(batch_size),
+    ]
+    if plan is not None:
+        submit_args += ["--input", str(output)]
+    else:
+        submit_args += ["--number", str(number)]
+
+    result = subprocess.run(submit_args, cwd=SIMULATOR_DIR)
+    if result.returncode != 0:
+        raise typer.Exit(code=result.returncode)
 
 
 if __name__ == "__main__":

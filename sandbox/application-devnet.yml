@@ -31,6 +31,9 @@ store:
     alonzo-genesis-file: /app/genesis/network/devnet/alonzo-genesis.json
     conway-genesis-file: /app/genesis/network/devnet/conway-genesis.json
 
+faucet:
+  utxo-amount-lovelace: ${FAUCET_UTXO_AMOUNT_LOVELACE:500000000}
+
 cardano:
   service:
     user:

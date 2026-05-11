@@ -1,0 +1,13 @@
+{
+  "issuer":      { "type": "static",        "value": "Acme Corp" },
+  "active":      { "type": "static",        "value": true },
+  "version":     { "type": "static",        "value": 1 },
+  "year":        { "type": "random-number", "range": { "min": 2018, "max": 2025 } },
+  "score":       { "type": "random-number", "range": { "min": 0,    "max": 100  } },
+  "verified":    { "type": "random-bool" },
+  "serial":      { "type": "random-string", "regex": "[A-Z]{2}[0-9]{6}-[A-Z]{4}" },
+  "batch_id":    { "type": "random-string", "regex": "[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}" },
+  "category":    { "type": "one-of",        "values": ["gold", "silver", "bronze"] },
+  "status":      { "type": "one-of",        "values": ["active", "pending", "archived"] },
+  "country_code":{ "type": "one-of",        "values": ["DE", "US", "JP", "FR", "GB", "AU"] }
+}

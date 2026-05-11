@@ -9,7 +9,9 @@ WORKDIR /app
 COPY --from=base /app/yano.jar yano.jar
 COPY --from=base /app/config ./config
 COPY snapshots/uverify-base-state /app/snapshots/uverify-base-state
-# Override maxKESEvolutions so the devnet never hits KES expiry in practice
+# Override shelley genesis: slotsPerKESPeriod=3000000 accounts for the 0.2s slot
+# length (5 slots/s), giving ~14 months of KES validity from genesis start.
+# Formula: 63 × 3000000 × 0.2s = 37800000s ≈ 437 days from 2026-04-20 → expires ~2027-06-01.
 COPY genesis/shelley-genesis.json /app/config/network/devnet/shelley-genesis.json
 COPY application.yml /app/config/application.yml
 

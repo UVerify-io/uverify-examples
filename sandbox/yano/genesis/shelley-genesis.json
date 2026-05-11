@@ -64,7 +64,7 @@
   },
   "securityParam": 100,
   "slotLength": 0.2,
-  "slotsPerKESPeriod": 129600,
+  "slotsPerKESPeriod": 3000000,
   "staking": {
     "pools": {
       "7301761068762f5900bde9eb7c1c15b09840285130f5b0f53606cc57": {

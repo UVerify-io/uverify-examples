@@ -105,6 +105,29 @@ uv run sandbox.py template rm  <name>   # remove a template (asks for confirmati
 - At startup, `config.js` reads that file and generates the import wiring before Vite builds the app.
 - Both the template folder and `additional-templates.json` are excluded from git, so your local templates stay local.
 
+### Simulator
+
+The simulator generates batches of on-chain certificates against the sandbox for load testing and demo data. It is built into `sandbox.py` and requires [Deno](https://deno.com):
+
+```bash
+# Generate and submit from a plan file
+uv run sandbox.py simulate \
+  --template productVerification \
+  --plan sandbox/simulator/plan.vin.json \
+  --amount 500 \
+  --batch-size 5
+
+# Synthetic load test — no plan file needed
+uv run sandbox.py simulate \
+  --template productVerification \
+  --number 100 \
+  --batch-size 10
+```
+
+A plan file describes how each metadata field is generated (static values, random numbers, random strings, enumerations). Copy `sandbox/simulator/plan.example.json` to `sandbox/simulator/plan.json` or `sandbox/simulator/plan.<use-case>.json` and adjust the fields for your scenario. Plan files are gitignored (except the example), so local plans stay local.
+
+See [`sandbox/simulator/README.md`](sandbox/simulator/README.md) for the full plan format reference and direct Deno script usage.
+
 ## Examples
 
 Each language directory contains the same set of certificate templates. Pick your language and run an example:

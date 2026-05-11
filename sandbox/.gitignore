@@ -4,3 +4,7 @@ tmp/
 docker-compose.override.yml
 Dockerfile.sandbox-ui
 *-additional-templates.json
+simulator/plan*.json
+!simulator/plan.example.json
+simulator/output/
+simulator/results.json
