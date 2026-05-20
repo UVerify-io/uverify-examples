@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+import urllib.error
 from pathlib import Path
 
 import typer
@@ -28,6 +29,12 @@ SANDBOX_DIR = SCRIPT_DIR / "sandbox"
 PROJECT = "sandbox"
 CHAINSTATE_VOLUME = f"{PROJECT}_yaci_chainstate"
 SEED_MARKER = SANDBOX_DIR / ".chainstate-seeded"
+
+SNAPSHOT_CACHE = SANDBOX_DIR / "chainstate-snapshot.tar.gz"
+SNAPSHOT_RELEASE_URL = (
+    "https://github.com/UVerify-io/uverify-examples/releases/latest/download/"
+    "chainstate-snapshot.tar.gz"
+)
 
 CUSTOM_TEMPLATES_DIR = SANDBOX_DIR / "custom-ui-templates"
 ADDITIONAL_TEMPLATES_JSON = CUSTOM_TEMPLATES_DIR / "additional-templates.json"
@@ -51,6 +58,17 @@ URLS = [
     ("Yaci Store API", "http://localhost:8080"),
     ("Yaci Store (Swagger)", "http://localhost:8080/swagger-ui/index.html"),
     ("Yano devnet API", "http://localhost:7070/q/swagger-ui"),
+]
+
+KERIA_SERVICES = [
+    ("uverify-sandbox-keria", "KERIA agent"),
+    ("uverify-sandbox-vlei-verifier", "vLEI Verifier"),
+]
+
+KERIA_URLS = [
+    ("KERIA admin API", "http://localhost:3901"),
+    ("vLEI Verifier", "http://localhost:7676"),
+    ("vLEI Server", "http://localhost:7723"),
 ]
 
 
@@ -79,10 +97,22 @@ def save_templates(entries: list[dict]) -> None:
 # ── Docker helpers ────────────────────────────────────────────────────────────
 
 
-def compose(*args: str, check: bool = True) -> None:
-    result = subprocess.run(["docker", "compose", *args], cwd=SANDBOX_DIR)
+def compose(*args: str, check: bool = True, profiles: list[str] | None = None) -> None:
+    extra: list[str] = []
+    for p in (profiles or []):
+        extra += ["--profile", p]
+    result = subprocess.run(["docker", "compose", *extra, *args], cwd=SANDBOX_DIR)
     if check and result.returncode != 0:
         raise typer.Exit(code=result.returncode)
+
+
+def keria_running() -> bool:
+    result = subprocess.run(
+        ["docker", "inspect", "--format", "{{.State.Status}}", "uverify-sandbox-keria"],
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip() == "running"
 
 
 def chainstate_populated() -> bool:
@@ -93,6 +123,57 @@ def chainstate_populated() -> bool:
         capture_output=True,
     )
     return result.returncode == 0
+
+
+def _download_snapshot() -> None:
+    console.print(f"  Downloading chainstate snapshot from GitHub releases...")
+    tmp = SNAPSHOT_CACHE.with_suffix(".tmp")
+    try:
+        with urllib.request.urlopen(SNAPSHOT_RELEASE_URL) as response:
+            total = int(response.headers.get("Content-Length") or 0)
+            downloaded = 0
+            with open(tmp, "wb") as f:
+                while True:
+                    chunk = response.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total:
+                        mb_done = downloaded / (1024 * 1024)
+                        mb_total = total / (1024 * 1024)
+                        pct = downloaded * 100 // total
+                        sys.stdout.write(f"\r  Downloading... {mb_done:.1f} / {mb_total:.1f} MB ({pct}%)")
+                        sys.stdout.flush()
+            sys.stdout.write("\n")
+        tmp.rename(SNAPSHOT_CACHE)
+    except urllib.error.URLError as exc:
+        tmp.unlink(missing_ok=True)
+        console.print(f"[red]  Download failed:[/red] {exc}")
+        console.print(f"  Download manually and save to: [bold]{SNAPSHOT_CACHE}[/bold]")
+        console.print(f"  URL: {SNAPSHOT_RELEASE_URL}")
+        raise typer.Exit(code=1)
+
+
+def _seed_from_archive() -> None:
+    console.print("  Extracting snapshot archive into chainstate volume...", end="")
+    result = subprocess.run(
+        [
+            "docker", "run", "--rm",
+            "-v", f"{SNAPSHOT_CACHE.resolve()}:/snapshot.tar.gz:ro",
+            "-v", f"{CHAINSTATE_VOLUME}:/chainstate",
+            "alpine",
+            "sh", "-c", "cd /chainstate && tar xzf /snapshot.tar.gz",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        console.print()
+        console.print(f"[red]  Failed to extract snapshot:[/red]\n{result.stderr.strip()}")
+        raise typer.Exit(code=1)
+    SEED_MARKER.touch()
+    console.print(" done.")
 
 
 def seed_chainstate() -> None:
@@ -107,12 +188,17 @@ def seed_chainstate() -> None:
         capture_output=True,
         text=True,
     )
-    if result.returncode != 0:
-        console.print()
-        console.print(f"[red]  Failed to seed chainstate:[/red]\n{result.stderr.strip()}")
-        raise typer.Exit(code=1)
-    SEED_MARKER.touch()
-    console.print(" done.")
+    if result.returncode == 0:
+        SEED_MARKER.touch()
+        console.print(" done.")
+        return
+
+    # Docker image not available — fall back to the GitHub releases snapshot.
+    console.print()
+    console.print("  Docker image unavailable. Falling back to GitHub releases snapshot.")
+    if not SNAPSHOT_CACHE.exists():
+        _download_snapshot()
+    _seed_from_archive()
 
 
 def wait_for_yano() -> None:
@@ -145,12 +231,12 @@ def catch_up() -> None:
     console.print(" done.")
 
 
-def print_status() -> None:
+def print_status(extra_services: list[tuple[str, str]] | None = None) -> None:
     table = Table(show_header=True, header_style="bold")
     table.add_column("Service", style="cyan", min_width=26)
     table.add_column("Status")
 
-    for container, name in SERVICES:
+    for container, name in SERVICES + (extra_services or []):
         result = subprocess.run(
             ["docker", "inspect", "--format", "{{.State.Status}}", container],
             capture_output=True,
@@ -168,22 +254,24 @@ def print_status() -> None:
     console.print(table)
 
 
-def print_urls() -> None:
+def print_urls(extra_urls: list[tuple[str, str]] | None = None) -> None:
     table = Table(show_header=True, header_style="bold")
     table.add_column("Service", style="cyan", min_width=26)
     table.add_column("URL", style="blue")
 
-    for name, url in URLS:
+    for name, url in URLS + (extra_urls or []):
         table.add_row(name, url)
 
     console.print(table)
     console.print()
 
 
-def do_start(clean: bool = False) -> None:
+def do_start(clean: bool = False, keria: bool = False) -> None:
+    profiles = ["keria"] if keria else []
+
     if clean:
         console.print("Cleaning sandbox data...")
-        compose("down", "-v")
+        compose("down", "-v", profiles=["keria"])
         subprocess.run(["docker", "volume", "rm", CHAINSTATE_VOLUME], capture_output=True)
         SEED_MARKER.unlink(missing_ok=True)
         console.print()
@@ -195,13 +283,17 @@ def do_start(clean: bool = False) -> None:
         CUSTOM_TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
         save_templates([])
 
-    console.print("Starting UVerify sandbox...")
-    compose("up", "-d", "--remove-orphans", check=False)
+    if keria:
+        console.print("Starting UVerify sandbox [bold](KERIA profile)[/bold]...")
+    else:
+        console.print("Starting UVerify sandbox...")
+    compose("up", "-d", "--remove-orphans", check=False, profiles=profiles)
     console.print()
     wait_for_yano()
     catch_up()
     console.print()
-    print_urls()
+    extra_urls = KERIA_URLS if keria else None
+    print_urls(extra_urls)
     console.print("  All services are starting. Some may take up to a minute to become fully ready.")
     console.print("  Run [bold]uv run sandbox.py info[/bold] at any time to check status.\n")
 
@@ -212,33 +304,37 @@ def do_start(clean: bool = False) -> None:
 @app.command()
 def start(
     clean: bool = typer.Option(False, "--clean", help="Wipe all data and start fresh from the snapshot"),
+    keria: bool = typer.Option(False, "--keria", help="Also start KERIA infrastructure (witness network, vLEI server, KERIA agent, vLEI verifier)"),
 ) -> None:
     """Start all sandbox services."""
-    do_start(clean=clean)
+    do_start(clean=clean, keria=keria)
 
 
 @app.command()
 def stop() -> None:
     """Stop all sandbox services."""
     console.print("Stopping UVerify sandbox...")
-    compose("down")
+    compose("down", profiles=["keria"])
     console.print("Done.")
 
 
 @app.command()
-def restart() -> None:
+def restart(
+    keria: bool = typer.Option(False, "--keria", help="Also start KERIA infrastructure"),
+) -> None:
     """Restart all sandbox services."""
     console.print("Restarting UVerify sandbox...")
-    compose("down")
+    compose("down", profiles=["keria"])
     console.print()
-    do_start()
+    do_start(keria=keria)
 
 
 @app.command()
 def info() -> None:
     """Show service status and URLs."""
-    print_status()
-    print_urls()
+    _keria = keria_running()
+    print_status(KERIA_SERVICES if _keria else None)
+    print_urls(KERIA_URLS if _keria else None)
 
 
 @app.command()

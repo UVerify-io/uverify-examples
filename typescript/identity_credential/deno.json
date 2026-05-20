@@ -1,0 +1,20 @@
+{
+  "nodeModulesDir": "auto",
+  "compilerOptions": {
+    "lib": ["deno.ns", "deno.window", "esnext"],
+    "strict": true
+  },
+  "allowScripts": [
+    "npm:@parcel/watcher@2.5.6",
+    "npm:chacha-native@2.0.3",
+    "npm:msgpackr-extract@3.0.3"
+  ],
+  "imports": {
+    "@evolution-sdk/evolution": "npm:@evolution-sdk/evolution@0.5.7",
+    "@evolution-sdk/evolution/sdk/client/Client": "npm:@evolution-sdk/evolution@0.5.7/sdk/client/Client",
+    "@evolution-sdk/evolution/sdk/client/Chain": "npm:@evolution-sdk/evolution@0.5.7/sdk/client/Chain",
+    "@evolution-sdk/evolution/sdk/wallet/Derivation": "npm:@evolution-sdk/evolution@0.5.7/sdk/wallet/Derivation",
+    "@uverify/sdk": "npm:@uverify/sdk@0.1.7",
+    "signify-ts": "npm:signify-ts@^0.2.0"
+  }
+}

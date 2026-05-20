@@ -57,14 +57,17 @@ services:
         condition: service_healthy
       yano:
         condition: service_healthy
+    environment:
+      RATE_LIMIT_ENABLED: "false"
     ports:
       - "9090:9090"
+      - "9091:9091"    # management (threaddump, metrics, loggers) — local only, not in prod
     deploy:
       resources:
         limits:
           cpus: '1.5'
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9090/actuator/health | grep -q UP || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:9091/actuator/health | grep -q UP || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 30
@@ -131,6 +134,93 @@ services:
         condition: service_healthy
     ports:
       - "3000:80"
+
+  # ── KERIA infrastructure (opt-in profile) ────────────────────────────────────
+  # Start with: python3 sandbox.py start --keria
+  # Provides: KERI witness network, vLEI credential schema server,
+  #           KERIA cloud agent, and vLEI Verifier for credential status queries.
+
+  witness-demo:
+    image: weboftrust/keri-witness-demo:1.1.0
+    container_name: uverify-sandbox-witness-demo
+    restart: unless-stopped
+    profiles: [keria]
+    volumes:
+      - ./keria/config/witness-demo:/keripy/scripts/keri/cf/main
+    ports:
+      - "5642:5642"
+      - "5643:5643"
+      - "5644:5644"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5642/oobi || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  vlei-server:
+    image: gleif/vlei:0.2.0
+    container_name: uverify-sandbox-vlei-server
+    restart: unless-stopped
+    profiles: [keria]
+    command: vLEI-server -s ./schema/acdc -c ./samples/acdc/ -o ./samples/oobis/
+    ports:
+      - "7723:7723"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7723/oobi/EBfdlu8R27Fbx-ehrqwImnK-8Cm79sqbAQ4MmvEAYqao || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  keria:
+    image: weboftrust/keria:0.2.0-rc2
+    container_name: uverify-sandbox-keria
+    restart: unless-stopped
+    profiles: [keria]
+    depends_on:
+      witness-demo:
+        condition: service_healthy
+      vlei-server:
+        condition: service_healthy
+    volumes:
+      - ./keria/config/keria.json:/keria/config/keri/cf/keria.json
+    command: start --config-dir /keria/config --config-file keria --name agent
+    environment:
+      KERI_AGENT_CORS: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONIOENCODING: UTF-8
+    ports:
+      - "3901:3901"   # Admin API (Signify clients connect here)
+      - "3902:3902"   # Message router / OOBI endpoint
+      - "3903:3903"   # Boot / agency
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3902/spec.yaml || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  vlei-verifier:
+    image: gleif/vlei-verifier:latest
+    container_name: uverify-sandbox-vlei-verifier
+    restart: unless-stopped
+    profiles: [keria]
+    depends_on:
+      keria:
+        condition: service_healthy
+    environment:
+      VERIFIER_CONFIG_FILE: verifier-config-public.json
+      # False lets locally issued ACDCs pass without tracing back to the GLEIF root
+      VERIFY_ROOT_OF_TRUST: "False"
+    ports:
+      - "7676:7676"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7676/health || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
 
 volumes:
   yaci_chainstate:
