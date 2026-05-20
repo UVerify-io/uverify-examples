@@ -11,7 +11,6 @@ import subprocess
 import sys
 import time
 import urllib.request
-import urllib.error
 from pathlib import Path
 
 import typer
@@ -29,12 +28,6 @@ SANDBOX_DIR = SCRIPT_DIR / "sandbox"
 PROJECT = "sandbox"
 CHAINSTATE_VOLUME = f"{PROJECT}_yaci_chainstate"
 SEED_MARKER = SANDBOX_DIR / ".chainstate-seeded"
-
-SNAPSHOT_CACHE = SANDBOX_DIR / "chainstate-snapshot.tar.gz"
-SNAPSHOT_RELEASE_URL = (
-    "https://github.com/UVerify-io/uverify-examples/releases/latest/download/"
-    "chainstate-snapshot.tar.gz"
-)
 
 CUSTOM_TEMPLATES_DIR = SANDBOX_DIR / "custom-ui-templates"
 ADDITIONAL_TEMPLATES_JSON = CUSTOM_TEMPLATES_DIR / "additional-templates.json"
@@ -125,57 +118,6 @@ def chainstate_populated() -> bool:
     return result.returncode == 0
 
 
-def _download_snapshot() -> None:
-    console.print(f"  Downloading chainstate snapshot from GitHub releases...")
-    tmp = SNAPSHOT_CACHE.with_suffix(".tmp")
-    try:
-        with urllib.request.urlopen(SNAPSHOT_RELEASE_URL) as response:
-            total = int(response.headers.get("Content-Length") or 0)
-            downloaded = 0
-            with open(tmp, "wb") as f:
-                while True:
-                    chunk = response.read(65536)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if total:
-                        mb_done = downloaded / (1024 * 1024)
-                        mb_total = total / (1024 * 1024)
-                        pct = downloaded * 100 // total
-                        sys.stdout.write(f"\r  Downloading... {mb_done:.1f} / {mb_total:.1f} MB ({pct}%)")
-                        sys.stdout.flush()
-            sys.stdout.write("\n")
-        tmp.rename(SNAPSHOT_CACHE)
-    except urllib.error.URLError as exc:
-        tmp.unlink(missing_ok=True)
-        console.print(f"[red]  Download failed:[/red] {exc}")
-        console.print(f"  Download manually and save to: [bold]{SNAPSHOT_CACHE}[/bold]")
-        console.print(f"  URL: {SNAPSHOT_RELEASE_URL}")
-        raise typer.Exit(code=1)
-
-
-def _seed_from_archive() -> None:
-    console.print("  Extracting snapshot archive into chainstate volume...", end="")
-    result = subprocess.run(
-        [
-            "docker", "run", "--rm",
-            "-v", f"{SNAPSHOT_CACHE.resolve()}:/snapshot.tar.gz:ro",
-            "-v", f"{CHAINSTATE_VOLUME}:/chainstate",
-            "alpine",
-            "sh", "-c", "cd /chainstate && tar xzf /snapshot.tar.gz",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        console.print()
-        console.print(f"[red]  Failed to extract snapshot:[/red]\n{result.stderr.strip()}")
-        raise typer.Exit(code=1)
-    SEED_MARKER.touch()
-    console.print(" done.")
-
-
 def seed_chainstate() -> None:
     console.print("  Seeding chainstate from snapshot...", end="")
     result = subprocess.run(
@@ -188,17 +130,12 @@ def seed_chainstate() -> None:
         capture_output=True,
         text=True,
     )
-    if result.returncode == 0:
-        SEED_MARKER.touch()
-        console.print(" done.")
-        return
-
-    # Docker image not available — fall back to the GitHub releases snapshot.
-    console.print()
-    console.print("  Docker image unavailable. Falling back to GitHub releases snapshot.")
-    if not SNAPSHOT_CACHE.exists():
-        _download_snapshot()
-    _seed_from_archive()
+    if result.returncode != 0:
+        console.print()
+        console.print(f"[red]  Failed to seed chainstate:[/red]\n{result.stderr.strip()}")
+        raise typer.Exit(code=1)
+    SEED_MARKER.touch()
+    console.print(" done.")
 
 
 def wait_for_yano() -> None:

@@ -68,14 +68,6 @@ That's it. All services start automatically from the pre-built snapshot.
 
 This means the sandbox works correctly regardless of how long ago the snapshot was taken.
 
-### Chainstate snapshot
-
-The chainstate snapshot is not stored in the repository because it is too large. It is obtained in one of two ways (tried in order):
-
-1. **Bundled Docker image** — `uverify/sandbox-node:latest` ships the snapshot inside the image. If the image is already pulled locally, no download is needed.
-2. **GitHub releases fallback** — if the Docker image is not available, `sandbox.py` downloads `chainstate-snapshot.tar.gz` from the [latest GitHub release](https://github.com/UVerify-io/uverify-examples/releases/latest) and caches it at `sandbox/chainstate-snapshot.tar.gz`. Subsequent runs reuse the cached file.
-
-The cached archive is gitignored. To force a fresh download, delete `sandbox/chainstate-snapshot.tar.gz` before starting.
 
 ---
 
