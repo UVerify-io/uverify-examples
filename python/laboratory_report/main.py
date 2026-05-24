@@ -64,7 +64,7 @@ if _env_network == "mainnet":
 elif _env_network == "preprod":
     _config = {
         "network": Network.TESTNET,
-        "backend_url": "https://api.uverify.io",
+        "backend_url": "https://api.preprod.uverify.io",
         "cexplorer_tx_url": "https://preprod.cexplorer.io/tx",
         "verify_url": "https://app.preprod.uverify.io/verify",
     }

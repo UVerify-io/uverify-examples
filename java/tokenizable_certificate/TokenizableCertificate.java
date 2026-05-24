@@ -58,7 +58,7 @@ class TokenizableCertificate {
             CEXPLORER_TX_URL = "https://cexplorer.io/tx";
             CHAIN_VIEWER_URL = "https://cexplorer.io";
         } else if ("preprod".equals(net)) {
-            BACKEND_URL      = "https://api.uverify.io";
+            BACKEND_URL      = "https://api.preprod.uverify.io";
             CEXPLORER_TX_URL = "https://preprod.cexplorer.io/tx";
             CHAIN_VIEWER_URL = "https://preprod.cexplorer.io";
         } else {

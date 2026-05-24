@@ -2,7 +2,7 @@ import { Address, Bytes, COSE, PrivateKey, TransactionWitnessSet } from '@evolut
 import { make as makeEvolutionClient } from '@evolution-sdk/evolution/sdk/client/Client';
 import { mainnet, preprod } from '@evolution-sdk/evolution/sdk/client/Chain';
 import { addressFromSeed } from '@evolution-sdk/evolution/sdk/wallet/Derivation';
-import { UVerifyClient, WaitForTimeoutError } from '@uverify/sdk';
+import { InsufficientFundsError, UVerifyClient, WaitForTimeoutError } from '@uverify/sdk';
 
 try {
   const envText = await Deno.readTextFile(new URL('../.env', import.meta.url));
@@ -31,7 +31,7 @@ const config = (() => {
   if (network === 'preprod') return {
     evolutionChain: preprod,
     networkId: 0 as const,
-    backendUrl: 'https://api.uverify.io',
+    backendUrl: 'https://api.preprod.uverify.io',
     cexplorerTxUrl: 'https://preprod.cexplorer.io/tx',
     verifyUrl: 'https://app.preprod.uverify.io/verify',
   };
@@ -144,21 +144,31 @@ for (const p of pets) {
   console.log(`  • ${p.petName} (${p.species}${p.breed ? ' · ' + p.breed : ''})`);
 }
 
-let txHash: string;
-try {
-  txHash = await issueCertificates(address, certs);
+async function run(): Promise<string> {
+  const txHash = await issueCertificates(address, certs);
   console.log(`\nTransaction submitted: ${config.cexplorerTxUrl}/${txHash}`);
   await waitFor(txHash);
   console.log('All pet certificates confirmed on-chain.\n');
+  return txHash;
+}
+
+let txHash: string;
+try {
+  txHash = await run();
 } catch (error) {
-  if (error instanceof WaitForTimeoutError) {
+  if (error instanceof InsufficientFundsError) {
+    console.log('\nInsufficient funds. Funding wallet and retrying …');
+    await waitFor(await fundWallet(address));
+    txHash = await run();
+  } else if (error instanceof WaitForTimeoutError) {
     console.error(
       '\nTimed out waiting for confirmation. The transaction may still be processing.\n' +
         'Re-run the script to check again or increase the timeout if this happens repeatedly.',
     );
     Deno.exit(1);
+  } else {
+    throw error;
   }
-  throw error;
 }
 
 console.log('Necklace tag QR-code URLs:');

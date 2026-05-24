@@ -41,7 +41,13 @@ class Diploma {
         String net = System.getenv().getOrDefault("UVERIFY_NETWORK",
                          dotEnv.getOrDefault("UVERIFY_NETWORK", "sandbox"));
         NETWORK = net;
-        BACKEND_URL = "sandbox".equals(net) ? "http://localhost:9090" : "https://api.uverify.io";
+        if ("mainnet".equals(net)) {
+            BACKEND_URL = "https://api.uverify.io";
+        } else if ("preprod".equals(net)) {
+            BACKEND_URL = "https://api.preprod.uverify.io";
+        } else {
+            BACKEND_URL = "http://localhost:9090";
+        }
     }
 
     public static void main(String[] args) throws Exception {

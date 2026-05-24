@@ -2,7 +2,7 @@ import { Address, Bytes, COSE, PrivateKey, TransactionWitnessSet } from '@evolut
 import { make as makeEvolutionClient } from '@evolution-sdk/evolution/sdk/client/Client';
 import { mainnet, preprod } from '@evolution-sdk/evolution/sdk/client/Chain';
 import { addressFromSeed } from '@evolution-sdk/evolution/sdk/wallet/Derivation';
-import { UVerifyClient, WaitForTimeoutError } from '@uverify/sdk';
+import { InsufficientFundsError, UVerifyClient, WaitForTimeoutError } from '@uverify/sdk';
 
 try {
   const envText = await Deno.readTextFile(new URL('../.env', import.meta.url));
@@ -31,7 +31,7 @@ const config = (() => {
   if (network === 'preprod') return {
     evolutionChain: preprod,
     networkId: 0 as const,
-    backendUrl: 'https://api.uverify.io',
+    backendUrl: 'https://api.preprod.uverify.io',
     cexplorerTxUrl: 'https://preprod.cexplorer.io/tx',
     verifyUrl: 'https://app.preprod.uverify.io/verify',
   };
@@ -103,22 +103,30 @@ if (isNew) {
 }
 
 async function certify(hash: string, metadata: Record<string, string | number>) {
-  try {
+  async function run() {
     const txHash = await issueCertificates(address, [
       { hash, algorithm: 'SHA-256', metadata: JSON.stringify(metadata) },
     ]);
     console.log(`Transaction submitted: ${config.cexplorerTxUrl}/${txHash}\n`);
     await waitFor(txHash);
     console.log(`Certified! View your certificate at ${config.verifyUrl}/${hash}`);
+  }
+  try {
+    await run();
   } catch (error) {
-    if (error instanceof WaitForTimeoutError) {
+    if (error instanceof InsufficientFundsError) {
+      console.log('\nInsufficient funds. Funding wallet and retrying …');
+      await waitFor(await fundWallet(address));
+      await run();
+    } else if (error instanceof WaitForTimeoutError) {
       console.error(
         '\nTimed out waiting for confirmation. The transaction may still be processing.\n' +
           'Re-run the script to check again or increase the timeout if this happens repeatedly.',
       );
       Deno.exit(1);
+    } else {
+      throw error;
     }
-    throw error;
   }
 }
 

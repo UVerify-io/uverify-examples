@@ -16,7 +16,7 @@ import { Address, Bytes, COSE, PrivateKey, TransactionWitnessSet } from '@evolut
 import { make as makeEvolutionClient } from '@evolution-sdk/evolution/sdk/client/Client';
 import { mainnet, preprod } from '@evolution-sdk/evolution/sdk/client/Chain';
 import { addressFromSeed } from '@evolution-sdk/evolution/sdk/wallet/Derivation';
-import { UVerifyClient, WaitForTimeoutError } from '@uverify/sdk';
+import { InsufficientFundsError, UVerifyClient, WaitForTimeoutError } from '@uverify/sdk';
 
 // ---------------------------------------------------------------------------
 // Load optional .env file (one directory up, shared across examples)
@@ -165,21 +165,31 @@ if (!KERI_OOBI || !KERI_PROOF) {
   console.log('      with keri_verified: false. Set them for full KERIA verification.\n');
 }
 
-let authTxHash: string;
-try {
-  authTxHash = await issueCertificates(address, [
+async function runAuth(): Promise<string> {
+  const txHash = await issueCertificates(address, [
     { hash: authHash, algorithm: 'SHA-256', metadata: JSON.stringify(authMetadata) },
   ]);
-  console.log('AUTH cert transaction:', `${config.cexplorerTxUrl}/${authTxHash}`);
+  console.log('AUTH cert transaction:', `${config.cexplorerTxUrl}/${txHash}`);
   console.log('Waiting for on-chain confirmation …');
-  await waitFor(authTxHash);
+  await waitFor(txHash);
   console.log('Confirmed.\n');
+  return txHash;
+}
+
+let authTxHash: string;
+try {
+  authTxHash = await runAuth();
 } catch (error) {
-  if (error instanceof WaitForTimeoutError) {
+  if (error instanceof InsufficientFundsError) {
+    console.log('\nInsufficient funds. Funding wallet and retrying …');
+    await waitFor(await fundWallet(address));
+    authTxHash = await runAuth();
+  } else if (error instanceof WaitForTimeoutError) {
     console.error('Timed out waiting for confirmation. Re-run the script to check again.');
     Deno.exit(1);
+  } else {
+    throw error;
   }
-  throw error;
 }
 
 console.log('AUTH certificate URL:');
@@ -229,21 +239,31 @@ const revokeMetadata = {
   th: authHash,
 };
 
-let revokeTxHash: string;
-try {
-  revokeTxHash = await issueCertificates(address, [
+async function runRevoke(): Promise<string> {
+  const txHash = await issueCertificates(address, [
     { hash: revokeHash, algorithm: 'SHA-256', metadata: JSON.stringify(revokeMetadata) },
   ]);
-  console.log('REVOKE cert transaction:', `${config.cexplorerTxUrl}/${revokeTxHash}`);
+  console.log('REVOKE cert transaction:', `${config.cexplorerTxUrl}/${txHash}`);
   console.log('Waiting for on-chain confirmation …');
-  await waitFor(revokeTxHash);
+  await waitFor(txHash);
   console.log('Confirmed.\n');
+  return txHash;
+}
+
+let revokeTxHash: string;
+try {
+  revokeTxHash = await runRevoke();
 } catch (error) {
-  if (error instanceof WaitForTimeoutError) {
+  if (error instanceof InsufficientFundsError) {
+    console.log('\nInsufficient funds. Funding wallet and retrying …');
+    await waitFor(await fundWallet(address));
+    revokeTxHash = await runRevoke();
+  } else if (error instanceof WaitForTimeoutError) {
     console.error('Timed out waiting for confirmation.');
     Deno.exit(1);
+  } else {
+    throw error;
   }
-  throw error;
 }
 
 console.log('Waiting 5 s for the indexer to process the revocation …');

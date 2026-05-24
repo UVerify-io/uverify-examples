@@ -2,7 +2,7 @@ import { Address, Bytes, COSE, PrivateKey, TransactionWitnessSet } from '@evolut
 import { make as makeEvolutionClient } from '@evolution-sdk/evolution/sdk/client/Client';
 import { mainnet, preprod } from '@evolution-sdk/evolution/sdk/client/Chain';
 import { addressFromSeed } from '@evolution-sdk/evolution/sdk/wallet/Derivation';
-import { UVerifyClient, WaitForTimeoutError } from '@uverify/sdk';
+import { InsufficientFundsError, UVerifyClient, WaitForTimeoutError } from '@uverify/sdk';
 
 try {
   const envText = await Deno.readTextFile(new URL('../.env', import.meta.url));
@@ -31,7 +31,7 @@ const config = (() => {
   if (network === 'preprod') return {
     evolutionChain: preprod,
     networkId: 0 as const,
-    backendUrl: 'https://api.uverify.io',
+    backendUrl: 'https://api.preprod.uverify.io',
     cexplorerTxUrl: 'https://preprod.cexplorer.io/tx',
     chainViewerUrl: 'https://preprod.cexplorer.io',
   };
@@ -250,7 +250,7 @@ if (command === 'create') {
 
   console.log('Issuing tokenizable certificate …\n');
 
-  try {
+  async function runCreate() {
     const deployerPubKeyHash = issuerWallet.paymentKeyHash;
 
     const certMetadata: Record<string, string> = { asset_name: assetName! };
@@ -282,12 +282,20 @@ if (command === 'create') {
 
     const status = await client.apps.getTokenizableCertificateStatus(key, initUtxoTxHash, initUtxoOutputIndex);
     console.log(`Claimed: ${status.claimed}`);
+  }
+  try {
+    await runCreate();
   } catch (error) {
-    if (error instanceof WaitForTimeoutError) {
+    if (error instanceof InsufficientFundsError) {
+      console.log('\nInsufficient funds. Funding issuer wallet and retrying …');
+      await waitFor(await fundWallet(issuerAddress));
+      await runCreate();
+    } else if (error instanceof WaitForTimeoutError) {
       console.error('Timed out waiting for confirmation. Re-run to check again.');
       Deno.exit(1);
+    } else {
+      throw error;
     }
-    throw error;
   }
 }
 
@@ -296,7 +304,7 @@ if (command === 'redeem') {
 
   console.log(`\nRedeeming tokenizable certificate with key: ${key} …\n`);
 
-  try {
+  async function runRedeem() {
     const txHash = await client.apps.redeemTokenizableCertificate(
       {
         key,
@@ -315,11 +323,19 @@ if (command === 'redeem') {
     const status = await client.apps.getTokenizableCertificateStatus(key, initUtxoTxHash, initUtxoOutputIndex);
     console.log(`Claimed: ${status.claimed}`);
     if (status.owner) console.log(`Owner: ${status.owner}`);
+  }
+  try {
+    await runRedeem();
   } catch (error) {
-    if (error instanceof WaitForTimeoutError) {
+    if (error instanceof InsufficientFundsError) {
+      console.log('\nInsufficient funds. Funding recipient wallet and retrying …');
+      await waitFor(await fundWallet(recipientWallet.address, recipientWallet.signMessage));
+      await runRedeem();
+    } else if (error instanceof WaitForTimeoutError) {
       console.error('Timed out waiting for confirmation. Re-run to check again.');
       Deno.exit(1);
+    } else {
+      throw error;
     }
-    throw error;
   }
 }

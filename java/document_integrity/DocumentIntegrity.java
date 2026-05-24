@@ -49,7 +49,7 @@ class DocumentIntegrity {
             BACKEND_URL = "https://api.uverify.io";
             VERIFY_URL  = "https://app.uverify.io/verify";
         } else if ("preprod".equals(net)) {
-            BACKEND_URL = "https://api.uverify.io";
+            BACKEND_URL = "https://api.preprod.uverify.io";
             VERIFY_URL  = "https://app.preprod.uverify.io/verify";
         } else {
             BACKEND_URL = "http://localhost:9090";

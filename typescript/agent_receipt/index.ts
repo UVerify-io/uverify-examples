@@ -2,7 +2,7 @@ import { Address, Bytes, COSE, PrivateKey, TransactionWitnessSet } from '@evolut
 import { make as makeEvolutionClient } from '@evolution-sdk/evolution/sdk/client/Client';
 import { mainnet, preprod } from '@evolution-sdk/evolution/sdk/client/Chain';
 import { addressFromSeed } from '@evolution-sdk/evolution/sdk/wallet/Derivation';
-import { UVerifyClient, WaitForTimeoutError } from '@uverify/sdk';
+import { InsufficientFundsError, UVerifyClient, WaitForTimeoutError } from '@uverify/sdk';
 
 try {
   const envText = await Deno.readTextFile(new URL('../.env', import.meta.url));
@@ -31,7 +31,7 @@ const config = (() => {
   if (network === 'preprod') return {
     evolutionChain: preprod,
     networkId: 0 as const,
-    backendUrl: 'https://api.uverify.io',
+    backendUrl: 'https://api.preprod.uverify.io',
     cexplorerTxUrl: 'https://preprod.cexplorer.io/tx',
     verifyUrl: 'https://app.preprod.uverify.io/verify',
   };
@@ -125,7 +125,7 @@ console.log(`  Agent   : ${receipt.agentName}`);
 console.log(`  Tx ID   : ${receipt.transactionId}`);
 console.log(`  LCP     : Level 4 — Integrated (derived from disputeResolution)\n`);
 
-try {
+async function run() {
   const { txHash, verifyUrl } = await client.apps.issueAgentReceipt(address, receipt);
 
   console.log(`Transaction submitted: ${config.cexplorerTxUrl}/${txHash}`);
@@ -135,13 +135,22 @@ try {
   console.log('Verification URL (share with auditors or counterparties):');
   console.log(`  ${verifyUrl}`);
   console.log('\nDone. The Agent Receipt is permanently anchored on Cardano.');
+}
+
+try {
+  await run();
 } catch (error) {
-  if (error instanceof WaitForTimeoutError) {
+  if (error instanceof InsufficientFundsError) {
+    console.log('\nInsufficient funds. Funding wallet and retrying …');
+    await waitFor(await fundWallet(address));
+    await run();
+  } else if (error instanceof WaitForTimeoutError) {
     console.error(
       '\nTimed out waiting for confirmation. The transaction may still be processing.\n' +
         'Re-run the script to check again or increase the timeout if this happens repeatedly.',
     );
     Deno.exit(1);
+  } else {
+    throw error;
   }
-  throw error;
 }
