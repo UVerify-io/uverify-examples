@@ -45,7 +45,112 @@ const config = (() => {
 })();
 
 const WALLET_FILE = new URL('./wallet.txt', import.meta.url);
-const INSTITUTION = 'Technical University of Munich';
+
+// ── Plan evaluation (same field-def format as sandbox/simulator/generate.ts) ─
+
+type FieldDef =
+  | { type: 'static';        value: string | number | boolean }
+  | { type: 'random-bool' }
+  | { type: 'random-number'; range: { min: number; max: number } }
+  | { type: 'random-string'; regex: string }
+  | { type: 'one-of';        values: (string | number | boolean)[] };
+
+type Plan = Record<string, FieldDef>;
+
+function parseCharClass(src: string): string[] {
+  const chars: string[] = [];
+  let i = 0;
+  while (i < src.length) {
+    if (i + 2 < src.length && src[i + 1] === '-') {
+      const lo = src.charCodeAt(i), hi = src.charCodeAt(i + 2);
+      for (let c = lo; c <= hi; c++) chars.push(String.fromCharCode(c));
+      i += 3;
+    } else {
+      chars.push(src[i++]);
+    }
+  }
+  return chars;
+}
+
+function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
+
+const ALNUM = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'.split('');
+
+function generateFromPattern(pattern: string): string {
+  let out = '', i = 0;
+  while (i < pattern.length) {
+    let pool: string[];
+    if (pattern[i] === '[') {
+      const end = pattern.indexOf(']', i + 1);
+      if (end === -1) throw new Error(`Unclosed [ in pattern: ${pattern}`);
+      pool = parseCharClass(pattern.slice(i + 1, end));
+      i = end + 1;
+    } else if (pattern[i] === '.') {
+      pool = ALNUM; i++;
+    } else {
+      pool = [pattern[i++]];
+    }
+    let count = 1;
+    if (i < pattern.length && pattern[i] === '{') {
+      const end = pattern.indexOf('}', i + 1);
+      if (end === -1) throw new Error(`Unclosed { in pattern: ${pattern}`);
+      const spec = pattern.slice(i + 1, end);
+      if (spec.includes(',')) {
+        const [lo, hi] = spec.split(',').map((s) => parseInt(s.trim(), 10));
+        count = lo + Math.floor(Math.random() * (hi - lo + 1));
+      } else {
+        count = parseInt(spec.trim(), 10);
+      }
+      i = end + 1;
+    } else if (i < pattern.length && pattern[i] === '+') {
+      count = 1 + Math.floor(Math.random() * 9); i++;
+    } else if (i < pattern.length && pattern[i] === '*') {
+      count = Math.floor(Math.random() * 10); i++;
+    }
+    for (let k = 0; k < count; k++) out += pick(pool);
+  }
+  return out;
+}
+
+function evaluateField(def: FieldDef): string | number | boolean {
+  switch (def.type) {
+    case 'static':        return def.value;
+    case 'random-bool':   return Math.random() < 0.5;
+    case 'random-number': return def.range.min + Math.floor(Math.random() * (def.range.max - def.range.min + 1));
+    case 'random-string': return generateFromPattern(def.regex);
+    case 'one-of':        return pick(def.values);
+    default: throw new Error(`Unknown field type: ${(def as FieldDef & { type: string }).type}`);
+  }
+}
+
+function evaluatePlan(plan: Plan): Record<string, string | number | boolean> {
+  return Object.fromEntries(Object.entries(plan).map(([k, v]) => [k, evaluateField(v)]));
+}
+
+// ── CLI args ─────────────────────────────────────────────────────────────────
+
+function getArg(flag: string): string | undefined {
+  const idx = Deno.args.indexOf(`--${flag}`);
+  return idx !== -1 ? Deno.args[idx + 1] : undefined;
+}
+
+const planPath = getArg('plan');
+const number   = Number(getArg('number') ?? '1');
+
+if (!planPath || Deno.args.includes('--help')) {
+  console.log(
+    'Usage: deno run -A index.ts --plan <plan.json> [--number <N>]\n\n' +
+    'Options:\n' +
+    '  --plan    Path to a plan JSON file (same format as sandbox/simulator)\n' +
+    '  --number  Number of graduates to generate (default: 1)\n' +
+    '  --help    Show this help'
+  );
+  Deno.exit(planPath ? 0 : 1);
+}
+
+const plan: Plan = JSON.parse(await Deno.readTextFile(planPath));
+type Graduate = { name: string; studentId: string; degree: string; graduationDate: string; honors?: string; institution: string };
+const graduates = Array.from({ length: number }, () => evaluatePlan(plan)) as Graduate[];
 
 function walletFromMnemonic(mnemonic: string) {
   const evolutionClient = makeEvolutionClient(config.evolutionChain).withSeed({ mnemonic, addressType: 'Enterprise' });
@@ -99,16 +204,12 @@ if (isNew) {
   console.log('Restored wallet:', address, '\n');
 }
 
-const graduates = [
-  { name: 'Maria Müller', studentId: 'TUM-2021-0042', degree: 'Master of Science in Computer Science', graduationDate: '2024-06-28', honors: 'Summa Cum Laude' },
-];
-
 console.log(`Issuing ${graduates.length} diploma …`);
 
 async function run() {
   const result = await client.apps.issueDiploma(
     address,
-    graduates.map((g) => ({ ...g, institution: INSTITUTION })),
+    graduates,
   );
   console.log(`Transaction submitted: ${config.cexplorerTxUrl}/${result.txHash}`);
   await waitFor(result.txHash);

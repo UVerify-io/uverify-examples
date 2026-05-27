@@ -1,0 +1,8 @@
+{
+  "name":           { "type": "static",  "value": "Maria Müller" },
+  "studentId":      { "type": "static",  "value": "TUM-2021-0042" },
+  "degree":         { "type": "static",  "value": "Master of Science in Computer Science" },
+  "graduationDate": { "type": "static",  "value": "2024-06-28" },
+  "honors":         { "type": "static",  "value": "Summa Cum Laude" },
+  "institution":    { "type": "static",  "value": "Ohara Institute of Scholarly Arts" }
+}
