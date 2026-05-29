@@ -1,52 +1,55 @@
 import { Address, Bytes, COSE, PrivateKey, TransactionWitnessSet } from '@evolution-sdk/evolution';
 import { make as makeEvolutionClient } from '@evolution-sdk/evolution/sdk/client/Client';
-import { mainnet, preprod } from '@evolution-sdk/evolution/sdk/client/Chain';
 import { addressFromSeed } from '@evolution-sdk/evolution/sdk/wallet/Derivation';
 import { InsufficientFundsError, UVerifyClient, WaitForTimeoutError } from '@uverify/sdk';
+import { evaluatePlan, getArg, getNetworkConfig, loadEnv, type Plan } from '../helper.ts';
 
-try {
-  const envText = await Deno.readTextFile(new URL('../.env', import.meta.url));
-  for (const line of envText.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    const val = trimmed.slice(eq + 1).trim();
-    if (!Deno.env.has(key)) Deno.env.set(key, val);
-  }
-} catch {
-  // .env not found, using defaults
-}
-
-const network = Deno.env.get('UVERIFY_NETWORK') ?? 'sandbox';
-const config = (() => {
-  if (network === 'mainnet') return {
-    evolutionChain: mainnet,
-    networkId: 1 as const,
-    backendUrl: 'https://api.uverify.io',
-    cexplorerTxUrl: 'https://cexplorer.io/tx',
-    verifyUrl: 'https://app.uverify.io/verify',
-  };
-  if (network === 'preprod') return {
-    evolutionChain: preprod,
-    networkId: 0 as const,
-    backendUrl: 'https://api.preprod.uverify.io',
-    cexplorerTxUrl: 'https://preprod.cexplorer.io/tx',
-    verifyUrl: 'https://app.preprod.uverify.io/verify',
-  };
-  return {
-    evolutionChain: preprod,
-    networkId: 0 as const,
-    backendUrl: 'http://localhost:9090',
-    cexplorerTxUrl: 'http://localhost:3001',
-    verifyUrl: 'http://localhost:3000/verify',
-  };
-})();
+await loadEnv(new URL('../.env', import.meta.url));
+const config = getNetworkConfig();
 
 const WALLET_FILE = new URL('./wallet.txt', import.meta.url);
-const INSURER = 'Acme Insurance AG';
-const PRODUCER = 'Schmidt Insurance Brokers';
+
+// ── CLI args ─────────────────────────────────────────────────────────────────
+
+const planPath = getArg('plan');
+const number   = Number(getArg('number') ?? '1');
+
+if (!planPath || Deno.args.includes('--help')) {
+  console.log(
+    'Usage: deno run -A index.ts --plan <plan.json> [--number <N>]\n\n' +
+    'Options:\n' +
+    '  --plan    Path to a plan JSON file (same format as sandbox/simulator)\n' +
+    '  --number  Number of certificates to issue (default: 1, each in its own transaction)\n' +
+    '  --help    Show this help\n\n' +
+    'Coverage fields use the cov_ prefix (e.g. cov_general_liability: "2,000,000").\n' +
+    'The prefix is stripped when the coverages object is assembled.'
+  );
+  Deno.exit(planPath ? 0 : 1);
+}
+
+const plan: Plan = JSON.parse(await Deno.readTextFile(planPath));
+
+function buildCoi(data: Record<string, string | number | boolean>) {
+  const coverages: Record<string, string> = Object.fromEntries(
+    Object.entries(data)
+      .filter(([k]) => k.startsWith('cov_'))
+      .map(([k, v]) => [k.slice(4), String(v)])
+  );
+  return {
+    policyNumber:             String(data.policyNumber),
+    insurer:                  String(data.insurer),
+    ...(data.producer !== undefined              ? { producer: String(data.producer) } : {}),
+    insured:                  String(data.insured),
+    ...(data.insuredAddress !== undefined        ? { insuredAddress: String(data.insuredAddress) } : {}),
+    effectiveDate:            String(data.effectiveDate),
+    expirationDate:           String(data.expirationDate),
+    ...(data.certificateHolder !== undefined     ? { certificateHolder: String(data.certificateHolder) } : {}),
+    ...(data.certificateHolderAddress !== undefined ? { certificateHolderAddress: String(data.certificateHolderAddress) } : {}),
+    ...(data.additionalInsured !== undefined     ? { additionalInsured: Boolean(data.additionalInsured) } : {}),
+    ...(data.waiverOfSubrogation !== undefined   ? { waiverOfSubrogation: Boolean(data.waiverOfSubrogation) } : {}),
+    coverages,
+  };
+}
 
 function walletFromMnemonic(mnemonic: string) {
   const evolutionClient = makeEvolutionClient(config.evolutionChain).withSeed({ mnemonic, addressType: 'Enterprise' });
@@ -85,6 +88,9 @@ const isNew = storedMnemonic === undefined;
 const wallet = isNew ? createWallet() : walletFromMnemonic(storedMnemonic!);
 const { address, signTx, signMessage, mnemonic } = wallet;
 
+console.log(`Using network: ${config.network}`);
+console.log(`Backend URL: ${config.backendUrl}`);
+
 const client = new UVerifyClient({ baseUrl: config.backendUrl, signMessage, signTx });
 const { waitFor, fundWallet } = client;
 
@@ -97,58 +103,42 @@ if (isNew) {
   console.log('Restored wallet:', address, '\n');
 }
 
-const coi = {
-  policyNumber: 'AI-GL-2025-049891',
-  insurer: INSURER,
-  producer: PRODUCER,
-  insured: 'TechBuild GmbH',
-  insuredAddress: 'Unter den Linden 12, 10117 Musterstadt, Germany',
-  effectiveDate: '2025-01-01',
-  expirationDate: '2027-01-01',
-  certificateHolder: 'City of Musterstadt — Department of Infrastructure',
-  certificateHolderAddress: 'Musterstadt Str. 1, 10117 Musterstadt, Germany',
-  additionalInsured: true,
-  waiverOfSubrogation: false,
-  coverages: {
-    general_liability: '2,000,000',
-    workers_compensation: '1,000,000',
-    auto_liability: '1,000,000',
-    umbrella: '5,000,000',
-  },
-};
+console.log(`Issuing ${number} Certificate(s) of Insurance …\n`);
 
-console.log('Issuing Certificate of Insurance …');
-console.log(`  Policy  : ${coi.policyNumber}`);
-console.log(`  Insured : ${coi.insured}`);
-console.log(`  Holder  : ${coi.certificateHolder}`);
-console.log(`  Valid   : ${coi.effectiveDate} → ${coi.expirationDate}\n`);
+async function issueOne(data: Record<string, string | number | boolean>) {
+  const coi = buildCoi(data);
 
-async function run() {
-  const { txHash, verifyUrl } = await client.apps.issueCertificateOfInsurance(address, coi);
+  async function run() {
+    const { txHash, verifyUrl } = await client.apps.issueCertificateOfInsurance(address, coi);
+    console.log(`Transaction submitted: ${config.cexplorerTxUrl}/${txHash}`);
+    await waitFor(txHash);
+    console.log('Certificate of Insurance confirmed on-chain.');
+    console.log(`  Policy  : ${coi.policyNumber}`);
+    console.log(`  Insured : ${coi.insured}`);
+    console.log(`  Verify  : ${verifyUrl}\n`);
+  }
 
-  console.log(`Transaction submitted: ${config.cexplorerTxUrl}/${txHash}`);
-  await waitFor(txHash);
-  console.log('Certificate of Insurance confirmed on-chain.\n');
-
-  console.log('Verification URL (share with certificate holder or auditors):');
-  console.log(`  ${verifyUrl}`);
-  console.log('\nDone. The Certificate of Insurance is permanently anchored on Cardano.');
-}
-
-try {
-  await run();
-} catch (error) {
-  if (error instanceof InsufficientFundsError) {
-    console.log('\nInsufficient funds. Funding wallet and retrying …');
-    await waitFor(await fundWallet(address));
+  try {
     await run();
-  } else if (error instanceof WaitForTimeoutError) {
-    console.error(
-      '\nTimed out waiting for confirmation. The transaction may still be processing.\n' +
-        'Re-run the script to check again or increase the timeout if this happens repeatedly.',
-    );
-    Deno.exit(1);
-  } else {
-    throw error;
+  } catch (error) {
+    if (error instanceof InsufficientFundsError) {
+      console.log('\nInsufficient funds. Funding wallet and retrying …');
+      await waitFor(await fundWallet(address));
+      await run();
+    } else if (error instanceof WaitForTimeoutError) {
+      console.error(
+        '\nTimed out waiting for confirmation. The transaction may still be processing.\n' +
+          'Re-run the script to check again or increase the timeout if this happens repeatedly.',
+      );
+      Deno.exit(1);
+    } else {
+      throw error;
+    }
   }
 }
+
+for (let i = 0; i < number; i++) {
+  await issueOne(evaluatePlan(plan));
+}
+
+console.log('Done. All Certificates of Insurance are permanently anchored on Cardano.');

@@ -1,50 +1,38 @@
 import { Address, Bytes, COSE, PrivateKey, TransactionWitnessSet } from '@evolution-sdk/evolution';
 import { make as makeEvolutionClient } from '@evolution-sdk/evolution/sdk/client/Client';
-import { mainnet, preprod } from '@evolution-sdk/evolution/sdk/client/Chain';
 import { addressFromSeed } from '@evolution-sdk/evolution/sdk/wallet/Derivation';
 import { InsufficientFundsError, UVerifyClient, WaitForTimeoutError } from '@uverify/sdk';
+import { evaluatePlan, getArg, getNetworkConfig, loadEnv, type Plan } from '../helper.ts';
 
-try {
-  const envText = await Deno.readTextFile(new URL('../.env', import.meta.url));
-  for (const line of envText.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    const val = trimmed.slice(eq + 1).trim();
-    if (!Deno.env.has(key)) Deno.env.set(key, val);
-  }
-} catch {
-  // .env not found, using defaults
-}
-
-const network = Deno.env.get('UVERIFY_NETWORK') ?? 'sandbox';
-const config = (() => {
-  if (network === 'mainnet') return {
-    evolutionChain: mainnet,
-    networkId: 1 as const,
-    backendUrl: 'https://api.uverify.io',
-    cexplorerTxUrl: 'https://cexplorer.io/tx',
-    verifyUrl: 'https://app.uverify.io/verify',
-  };
-  if (network === 'preprod') return {
-    evolutionChain: preprod,
-    networkId: 0 as const,
-    backendUrl: 'https://api.preprod.uverify.io',
-    cexplorerTxUrl: 'https://preprod.cexplorer.io/tx',
-    verifyUrl: 'https://app.preprod.uverify.io/verify',
-  };
-  return {
-    evolutionChain: preprod,
-    networkId: 0 as const,
-    backendUrl: 'http://localhost:9090',
-    cexplorerTxUrl: 'http://localhost:3001',
-    verifyUrl: 'http://localhost:3000/verify',
-  };
-})();
+await loadEnv(new URL('../.env', import.meta.url));
+const config = getNetworkConfig();
 
 const WALLET_FILE = new URL('./wallet.txt', import.meta.url);
+
+// ── CLI args ─────────────────────────────────────────────────────────────────
+
+const planPath = getArg('plan');
+const number   = Number(getArg('number') ?? '1');
+
+if (!planPath || Deno.args.includes('--help')) {
+  console.log(
+    'Usage: deno run -A index.ts --plan <plan.json> [--number <N>]\n\n' +
+    'Options:\n' +
+    '  --plan    Path to a plan JSON file (same format as sandbox/simulator)\n' +
+    '  --number  Number of pet certificates to issue in one transaction (default: 1)\n' +
+    '  --help    Show this help'
+  );
+  Deno.exit(planPath ? 0 : 1);
+}
+
+const plan: Plan = JSON.parse(await Deno.readTextFile(planPath));
+
+async function sha256hex(data: string): Promise<string> {
+  const buffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
+  return Array.from(new Uint8Array(buffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 function walletFromMnemonic(mnemonic: string) {
   const evolutionClient = makeEvolutionClient(config.evolutionChain).withSeed({ mnemonic, addressType: 'Enterprise' });
@@ -72,14 +60,6 @@ function createWallet() {
   return walletFromMnemonic(mnemonic);
 }
 
-async function sha256hex(data: Uint8Array | string): Promise<string> {
-  const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
-  const buffer = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(buffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
 let storedMnemonic: string | undefined;
 try {
   storedMnemonic = (await Deno.readTextFile(WALLET_FILE)).trim();
@@ -90,6 +70,9 @@ try {
 const isNew = storedMnemonic === undefined;
 const wallet = isNew ? createWallet() : walletFromMnemonic(storedMnemonic!);
 const { address, signTx, signMessage, mnemonic } = wallet;
+
+console.log(`Using network: ${config.network}`);
+console.log(`Backend URL: ${config.backendUrl}`);
 
 const client = new UVerifyClient({ baseUrl: config.backendUrl, signMessage, signTx });
 const { waitFor, fundWallet, issueCertificates } = client;
@@ -105,24 +88,8 @@ if (isNew) {
 
 const runId = crypto.randomUUID();
 
-const pets = [
-  {
-    petName: 'Luna',
-    ownerName: 'Emma Schneider',
-    phone: '+49 30 12345678',
-    species: 'Dog',
-    breed: 'Golden Retriever',
-    note: 'Very friendly! Please call if found.',
-  },
-  {
-    petName: 'Mochi',
-    ownerName: 'Jonas Weber',
-    phone: '+49 89 98765432',
-    species: 'Cat',
-    breed: 'Siamese',
-    note: 'Indoor cat — please do not let outside.',
-  },
-];
+type PetData = { petName: string; ownerName: string; phone: string; species: string; breed?: string; note?: string };
+const pets = Array.from({ length: number }, () => evaluatePlan(plan)) as PetData[];
 
 const certs = await Promise.all(pets.map(async (p) => ({
   hash: await sha256hex(p.petName + p.phone + runId),
@@ -135,11 +102,11 @@ const certs = await Promise.all(pets.map(async (p) => ({
     uv_url_phone: await sha256hex(p.phone),
     species: p.species,
     ...(p.breed ? { breed: p.breed } : {}),
-    ...(p.note ? { note: p.note } : {}),
+    ...(p.note  ? { note: p.note }  : {}),
   }),
 })));
 
-console.log(`Issuing ${certs.length} pet necklace certificate(s) …`);
+console.log(`Issuing ${certs.length} pet certificate(s) in a single transaction …`);
 for (const p of pets) {
   console.log(`  • ${p.petName} (${p.species}${p.breed ? ' · ' + p.breed : ''})`);
 }

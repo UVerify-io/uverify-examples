@@ -1,0 +1,8 @@
+{
+  "name":           { "type": "static", "value": "Organic Cotton Signature Tee" },
+  "manufacturer":   { "type": "static", "value": "EcoWear GmbH" },
+  "productionDate": { "type": "static", "value": "2024-10-01" },
+  "materialInfo":   { "type": "static", "value": "100% GOTS-certified organic cotton. Machine wash 30°C. Do not tumble dry." },
+  "serialNumber":   { "type": "static", "value": "EW-2024-TC-00847" },
+  "imageUrl":       { "type": "static", "value": "https://images.ecowear.example/tc-00847.jpg" }
+}

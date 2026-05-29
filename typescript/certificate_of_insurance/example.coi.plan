@@ -1,0 +1,17 @@
+{
+  "policyNumber":             { "type": "static", "value": "GL-SUNNY-1521-000001" },
+  "insurer":                  { "type": "static", "value": "Grand Line Mutual Assurance Society" },
+  "producer":                 { "type": "static", "value": "Iceberg & Associates — Water Seven Branch" },
+  "insured":                  { "type": "static", "value": "Straw Hat Pirates — Thousand Sunny (Research Vessel)" },
+  "insuredAddress":           { "type": "static", "value": "Dock 1, Galley-La Company, Water Seven, Grand Line" },
+  "effectiveDate":            { "type": "static", "value": "2026-01-01" },
+  "expirationDate":           { "type": "static", "value": "2028-01-01" },
+  "certificateHolder":        { "type": "static", "value": "Water Seven Port Authority — Maritime Compliance Office" },
+  "certificateHolderAddress": { "type": "static", "value": "Harbour Master Tower, Dock Street 1, Water Seven, Grand Line" },
+  "additionalInsured":        { "type": "static", "value": true },
+  "waiverOfSubrogation":      { "type": "static", "value": false },
+  "cov_general_liability":    { "type": "static", "value": "500,000,000" },
+  "cov_sea_king_collision":   { "type": "static", "value": "250,000,000" },
+  "cov_crew_liability":       { "type": "static", "value": "100,000,000" },
+  "cov_third_party_island_damage": { "type": "static", "value": "1,000,000,000" }
+}

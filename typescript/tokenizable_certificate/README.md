@@ -54,6 +54,14 @@ The resolved UTxO is saved to `seed_utxo.txt` and reused on every subsequent run
 
 ```bash
 cd uverify-examples/typescript/tokenizable_certificate
+
+# using a plan file (recommended)
+deno run -A index.ts create \
+  --plan example.tokenizable.plan \
+  --init-utxo-tx-hash <tx-hash> \
+  --init-utxo-output-index <index>
+
+# or pass all fields as CLI flags
 deno run -A index.ts create \
   --asset-name "1g Gold Bar" \
   --document-text "1g of Gold" \
@@ -64,15 +72,14 @@ deno run -A index.ts create \
   --asset-class "Commodity"
 ```
 
-Or certify a file instead of inline text:
+Issue multiple certificates in sequence with `--number N`:
 
 ```bash
 deno run -A index.ts create \
-  --asset-name "1g Gold Bar" \
-  --document-path "./assay_certificate.pdf" \
+  --plan example.tokenizable.plan \
+  --number 3 \
   --init-utxo-tx-hash <tx-hash> \
-  --init-utxo-output-index <index> \
-  --issuer-name "Acme Refinery"
+  --init-utxo-output-index <index>
 ```
 
 `--recipient-wallet` is optional. When omitted the script uses the address of the managed
@@ -91,23 +98,52 @@ The managed `recipient_wallet.txt` signs the claim transaction automatically.
 
 After redemption the linked-list node is updated and the certificate status changes to "redeemed".
 
+## Plan files
+
+Certificate data for the `create` command is defined in a JSON plan file using the same
+field-def format as the sandbox simulator (`sandbox/simulator/generate.ts`). Plan fields:
+
+| Field | Description |
+|---|---|
+| `assetName` | Human-readable asset name — converted to hex for the on-chain token |
+| `documentText` | Document content to certify — SHA-256 hashed to produce the on-chain key |
+| `issuerName` | Issuing organisation or individual (stored as metadata) |
+| `description` | Description of the certified asset (stored as metadata) |
+| `assetClass` | Category e.g. Commodity, Art, Real Estate (stored as metadata) |
+| `ipfsImage` | IPFS CID of an asset image shown in the certificate UI (stored as metadata) |
+
+CLI flags override plan values when both are provided. `--document-path` (file to certify)
+can be used instead of the plan's `documentText` field.
+
+`example.tokenizable.plan` ships with the example:
+
+```json
+{
+  "assetName":    { "type": "static", "value": "1g Gold Bar" },
+  "documentText": { "type": "static", "value": "1g of fine gold, serial #AU-00042" },
+  "issuerName":   { "type": "static", "value": "Acme Refinery" },
+  "description":  { "type": "static", "value": "Certified 1g fine gold bar, serial #AU-00042" },
+  "assetClass":   { "type": "static", "value": "Commodity" }
+}
+```
+
 ## All flags
 
-| Flag | Required | Description |
+| Flag | Command | Description |
 |---|---|---|
-| `--asset-name` | Yes (both) | Human-readable asset name — converted to hex for the on-chain token name. |
-| `--document-text` | create only† | Document content to certify — SHA-256 hashed to produce the on-chain key. |
-| `--document-path` | create only† | Path to a file to certify — bytes SHA-256 hashed on-chain. |
-| `--key` | Yes (redeem) | SHA-256 key printed during `create`. |
-| `--recipient-wallet` | No (both) | Bech32 address of the recipient. Defaults to the managed `recipient_wallet.txt`. |
-| `--issuer-name` | No (create) | Issuing organisation or individual — stored as certificate metadata. |
-| `--description` | No (create) | Description of the certified asset — stored as certificate metadata. |
-| `--asset-class` | No (create) | Category (e.g. Commodity, Art, Real Estate) — stored as certificate metadata. |
-| `--ipfs-image` | No (create) | IPFS CID of an asset image shown in the certificate UI. |
-| `--init-utxo-tx-hash` | First run | Override the Init UTxO transaction hash (required on first run). |
-| `--init-utxo-output-index` | First run | Override the Init UTxO output index (required on first run). |
-
-† `--document-text` and `--document-path` are mutually exclusive; exactly one is required for `create`.
+| `--plan` | create | Path to a plan JSON file. Provides default values for all data fields. |
+| `--number` | create | Issue N certificates in N transactions (default: 1). |
+| `--asset-name` | both | Human-readable asset name. |
+| `--document-text` | create | Document content — SHA-256 hashed to produce the on-chain key. |
+| `--document-path` | create | Path to a file — bytes SHA-256 hashed on-chain. |
+| `--key` | redeem | SHA-256 key printed during `create`. |
+| `--recipient-wallet` | both | Bech32 address of the recipient. Defaults to managed `recipient_wallet.txt`. |
+| `--issuer-name` | create | Issuing organisation or individual — stored as certificate metadata. |
+| `--description` | create | Description of the certified asset — stored as certificate metadata. |
+| `--asset-class` | create | Category (e.g. Commodity, Art, Real Estate) — stored as certificate metadata. |
+| `--ipfs-image` | create | IPFS CID of an asset image shown in the certificate UI. |
+| `--init-utxo-tx-hash` | both | Override the Init UTxO transaction hash (required on first run). |
+| `--init-utxo-output-index` | both | Override the Init UTxO output index (required on first run). |
 
 ## What the script does
 
@@ -116,10 +152,8 @@ After redemption the linked-list node is updated and the certificate status chan
 1. Loads or creates the **issuer** wallet (`wallet.txt`), funding it on first run.
 2. Loads or creates the **recipient** wallet (`recipient_wallet.txt`), funding it on first run.
 3. Resolves the Init UTxO from CLI flags or `seed_utxo.txt`.
-4. SHA-256 hashes the document (text or file bytes) to produce the on-chain key.
-5. Builds a `certificate` object containing the hash and a metadata JSON with any supplied
-   fields (`asset_name`, `issuer_name`, `description`, `asset_class`, `ipfs_image`). The
-   backend merges this with the template ID, minting policy ID, and Init UTxO coordinates.
+4. Evaluates the plan file (if `--plan` is provided) and merges with CLI flags.
+5. SHA-256 hashes the document (text or file bytes) to produce the on-chain key.
 6. Calls `issueTokenizableCertificate` — builds, signs, and submits the insert transaction.
 7. Waits for on-chain confirmation, prints the verification URL, and queries the certificate status.
 

@@ -1,50 +1,43 @@
 import { Address, Bytes, COSE, PrivateKey, TransactionWitnessSet } from '@evolution-sdk/evolution';
 import { make as makeEvolutionClient } from '@evolution-sdk/evolution/sdk/client/Client';
-import { mainnet, preprod } from '@evolution-sdk/evolution/sdk/client/Chain';
 import { addressFromSeed } from '@evolution-sdk/evolution/sdk/wallet/Derivation';
 import { InsufficientFundsError, UVerifyClient, WaitForTimeoutError } from '@uverify/sdk';
+import { evaluatePlan, getArg, getNetworkConfig, loadEnv, type Plan } from '../helper.ts';
 
-try {
-  const envText = await Deno.readTextFile(new URL('../.env', import.meta.url));
-  for (const line of envText.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    const val = trimmed.slice(eq + 1).trim();
-    if (!Deno.env.has(key)) Deno.env.set(key, val);
-  }
-} catch {
-  // .env not found, using defaults
-}
-
-const network = Deno.env.get('UVERIFY_NETWORK') ?? 'sandbox';
-const config = (() => {
-  if (network === 'mainnet') return {
-    evolutionChain: mainnet,
-    networkId: 1 as const,
-    backendUrl: 'https://api.uverify.io',
-    cexplorerTxUrl: 'https://cexplorer.io/tx',
-    verifyUrl: 'https://app.uverify.io/verify',
-  };
-  if (network === 'preprod') return {
-    evolutionChain: preprod,
-    networkId: 0 as const,
-    backendUrl: 'https://api.preprod.uverify.io',
-    cexplorerTxUrl: 'https://preprod.cexplorer.io/tx',
-    verifyUrl: 'https://app.preprod.uverify.io/verify',
-  };
-  return {
-    evolutionChain: preprod,
-    networkId: 0 as const,
-    backendUrl: 'http://localhost:9090',
-    cexplorerTxUrl: 'http://localhost:3001',
-    verifyUrl: 'http://localhost:3000/verify',
-  };
-})();
+await loadEnv(new URL('../.env', import.meta.url));
+const config = getNetworkConfig();
 
 const WALLET_FILE = new URL('./wallet.txt', import.meta.url);
+
+// ── CLI args ─────────────────────────────────────────────────────────────────
+
+const planPath = getArg('plan');
+const filePath = getArg('file');
+
+if (!planPath || Deno.args.includes('--help')) {
+  console.log(
+    'Usage: deno run -A index.ts --plan <plan.json> [--file <path>]\n\n' +
+    'Options:\n' +
+    '  --plan  Path to a plan JSON file (same format as sandbox/simulator)\n' +
+    '  --file  Path to the file to certify (default: sample_thesis.zip)\n' +
+    '  --help  Show this help\n\n' +
+    'The plan defines certificate metadata: title, issuer, author, filename,\n' +
+    'location, file_hint, description. The SHA-256 hash of the actual file\n' +
+    'content is used as the on-chain certificate fingerprint.'
+  );
+  Deno.exit(planPath ? 0 : 1);
+}
+
+const plan: Plan = JSON.parse(await Deno.readTextFile(planPath));
+const meta = evaluatePlan(plan);
+
+async function sha256hex(data: Uint8Array | string): Promise<string> {
+  const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data.slice();
+  const buffer = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(buffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 function walletFromMnemonic(mnemonic: string) {
   const evolutionClient = makeEvolutionClient(config.evolutionChain).withSeed({ mnemonic, addressType: 'Enterprise' });
@@ -72,14 +65,6 @@ function createWallet() {
   return walletFromMnemonic(mnemonic);
 }
 
-async function sha256hex(data: Uint8Array | string): Promise<string> {
-  const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
-  const buffer = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(buffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
 let storedMnemonic: string | undefined;
 try {
   storedMnemonic = (await Deno.readTextFile(WALLET_FILE)).trim();
@@ -90,6 +75,9 @@ try {
 const isNew = storedMnemonic === undefined;
 const wallet = isNew ? createWallet() : walletFromMnemonic(storedMnemonic!);
 const { address, signTx, signMessage, mnemonic } = wallet;
+
+console.log(`Using network: ${config.network}`);
+console.log(`Backend URL: ${config.backendUrl}`);
 
 const client = new UVerifyClient({ baseUrl: config.backendUrl, signMessage, signTx });
 const { waitFor, fundWallet, issueCertificates } = client;
@@ -106,31 +94,31 @@ if (isNew) {
   console.log('Restored wallet:', address, '\n');
 }
 
-const FILE_URL = new URL('./sample_thesis.zip', import.meta.url);
-const FILE_PATH = FILE_URL.pathname;
+const FILE_URL = filePath ? new URL(filePath, import.meta.url) : new URL('./sample_thesis.zip', import.meta.url);
+const fileName = String(meta.filename ?? FILE_URL.pathname.split('/').pop() ?? 'document');
 
 let fileBytes: Uint8Array;
 try {
   fileBytes = await Deno.readFile(FILE_URL);
 } catch {
-  const placeholder = new TextEncoder().encode('This is a placeholder for sample_thesis.zip.');
+  const placeholder = new TextEncoder().encode('This is a placeholder for the certified file.');
   await Deno.writeFile(FILE_URL, placeholder);
   fileBytes = placeholder;
-  console.log('Created placeholder sample_thesis.zip for demo purposes.\n');
+  console.log(`Created placeholder ${fileName} for demo purposes.\n`);
 }
 
-const fileName = FILE_PATH.split('/').pop() ?? 'sample_thesis.zip';
 const fileHash = await sha256hex(fileBytes);
 const fileSizeBytes = fileBytes.length;
-const fileType = 'application/zip';
-const fileHint = 'ZIP archive, not password protected';
-const FILE_LOCATION = `https://fileshare.university.tld/thesis/${fileName}`;
-const AUTHOR = 'Fabian Bormann';
-const INSTITUTION = 'Technical University of Musterstadt';
-const THESIS_TITLE = "Master's thesis: Impact of Blockchain Technology on Academic Record Keeping";
 
 console.log(`Certifying "${fileName}" (${fileSizeBytes.toLocaleString()} bytes) …`);
 console.log(`SHA-256: ${fileHash}\n`);
+
+const author   = String(meta.author   ?? '');
+const title    = String(meta.title    ?? '');
+const issuer   = String(meta.issuer   ?? '');
+const location = String(meta.location ?? '');
+const fileHint = String(meta.file_hint ?? '');
+const description = String(meta.description ?? '');
 
 async function run() {
   const txHash = await issueCertificates(address, [
@@ -139,19 +127,15 @@ async function run() {
       algorithm: 'SHA-256',
       metadata: JSON.stringify({
         uverify_template_id: 'documentIntegrity',
-        title: THESIS_TITLE,
-        issuer: INSTITUTION,
-        uv_url_filename: await sha256hex(fileName),
-        location: FILE_LOCATION,
+        ...(title       ? { title }       : {}),
+        ...(issuer      ? { issuer }      : {}),
+        ...(location    ? { location }    : {}),
+        ...(fileHint    ? { file_hint: fileHint }    : {}),
+        ...(description ? { description } : {}),
         file_size: fileSizeBytes,
-        file_type: fileType,
-        file_hint: fileHint,
-        description:
-          `You received this link because you were sent a copy of "${fileName}". ` +
-          `The file is available at: ${FILE_LOCATION}. ` +
-          `To confirm no one has tampered with it, drop the file into the area below — ` +
-          `the SHA-256 fingerprint will be compared against the blockchain record.`,
-        uv_url_author: await sha256hex(AUTHOR),
+        file_type: fileName.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream',
+        uv_url_filename: await sha256hex(fileName),
+        ...(author ? { uv_url_author: await sha256hex(author) } : {}),
       }),
     },
   ]);
@@ -160,9 +144,10 @@ async function run() {
   await waitFor(txHash);
   console.log('Certificate confirmed on-chain.\n');
 
-  const verifyUrl = `${config.verifyUrl}/${fileHash}?filename=${encodeURIComponent(fileName)}&author=${encodeURIComponent(AUTHOR)}`;
+  const params = new URLSearchParams({ filename: fileName });
+  if (author) params.set('author', author);
   console.log('Share this URL with the verifier:');
-  console.log(`  ${verifyUrl}`);
+  console.log(`  ${config.verifyUrl}/${fileHash}?${params}`);
 }
 
 try {

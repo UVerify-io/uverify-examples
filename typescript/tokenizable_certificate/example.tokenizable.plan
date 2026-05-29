@@ -1,0 +1,7 @@
+{
+  "assetName":   { "type": "static", "value": "1g Gold Bar" },
+  "documentText":{ "type": "static", "value": "1g of fine gold, serial #AU-00042" },
+  "issuerName":  { "type": "static", "value": "Acme Refinery" },
+  "description": { "type": "static", "value": "Certified 1g fine gold bar, serial #AU-00042" },
+  "assetClass":  { "type": "static", "value": "Commodity" }
+}

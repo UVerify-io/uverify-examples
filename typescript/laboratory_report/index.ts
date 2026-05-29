@@ -1,52 +1,49 @@
 import { Address, Bytes, COSE, PrivateKey, TransactionWitnessSet } from '@evolution-sdk/evolution';
 import { make as makeEvolutionClient } from '@evolution-sdk/evolution/sdk/client/Client';
-import { mainnet, preprod } from '@evolution-sdk/evolution/sdk/client/Chain';
 import { addressFromSeed } from '@evolution-sdk/evolution/sdk/wallet/Derivation';
 import { InsufficientFundsError, UVerifyClient, WaitForTimeoutError } from '@uverify/sdk';
+import { evaluatePlan, getArg, getNetworkConfig, loadEnv, type Plan } from '../helper.ts';
 
-try {
-  const envText = await Deno.readTextFile(new URL('../.env', import.meta.url));
-  for (const line of envText.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    const val = trimmed.slice(eq + 1).trim();
-    if (!Deno.env.has(key)) Deno.env.set(key, val);
-  }
-} catch {
-  // .env not found, using defaults
-}
-
-const network = Deno.env.get('UVERIFY_NETWORK') ?? 'sandbox';
-const config = (() => {
-  if (network === 'mainnet') return {
-    evolutionChain: mainnet,
-    networkId: 1 as const,
-    backendUrl: 'https://api.uverify.io',
-    cexplorerTxUrl: 'https://cexplorer.io/tx',
-    verifyUrl: 'https://app.uverify.io/verify',
-  };
-  if (network === 'preprod') return {
-    evolutionChain: preprod,
-    networkId: 0 as const,
-    backendUrl: 'https://api.preprod.uverify.io',
-    cexplorerTxUrl: 'https://preprod.cexplorer.io/tx',
-    verifyUrl: 'https://app.preprod.uverify.io/verify',
-  };
-  return {
-    evolutionChain: preprod,
-    networkId: 0 as const,
-    backendUrl: 'http://localhost:9090',
-    cexplorerTxUrl: 'http://localhost:3001',
-    verifyUrl: 'http://localhost:3000/verify',
-  };
-})();
+await loadEnv(new URL('../.env', import.meta.url));
+const config = getNetworkConfig();
 
 const WALLET_FILE = new URL('./wallet.txt', import.meta.url);
-const LAB_NAME = 'Berlin Medical Diagnostics GmbH';
-const LAB_CONTACT = 'results@bmd-lab.example';
+
+// ── CLI args ─────────────────────────────────────────────────────────────────
+
+const planPath = getArg('plan');
+const number   = Number(getArg('number') ?? '1');
+
+if (!planPath || Deno.args.includes('--help')) {
+  console.log(
+    'Usage: deno run -A index.ts --plan <plan.json> [--number <N>]\n\n' +
+    'Options:\n' +
+    '  --plan    Path to a plan JSON file (same format as sandbox/simulator)\n' +
+    '  --number  Number of reports to generate and issue in one transaction (default: 1)\n' +
+    '  --help    Show this help\n\n' +
+    'Measured value fields use the a_ prefix (e.g. a_glucose: "5.4 mmol/L").\n' +
+    'The prefix is stripped when the values object is assembled.'
+  );
+  Deno.exit(planPath ? 0 : 1);
+}
+
+const plan: Plan = JSON.parse(await Deno.readTextFile(planPath));
+
+function buildReport(data: Record<string, string | number | boolean>) {
+  const values: Record<string, string> = Object.fromEntries(
+    Object.entries(data)
+      .filter(([k]) => k.startsWith('a_'))
+      .map(([k, v]) => [k.slice(2), String(v)])
+  );
+  return {
+    patientName: String(data.patientName),
+    reportId:    String(data.reportId),
+    labName:     String(data.labName),
+    ...(data.contact   !== undefined ? { contact: String(data.contact) } : {}),
+    ...(data.auditable !== undefined ? { auditable: Boolean(data.auditable) } : {}),
+    values,
+  };
+}
 
 function walletFromMnemonic(mnemonic: string) {
   const evolutionClient = makeEvolutionClient(config.evolutionChain).withSeed({ mnemonic, addressType: 'Enterprise' });
@@ -85,6 +82,9 @@ const isNew = storedMnemonic === undefined;
 const wallet = isNew ? createWallet() : walletFromMnemonic(storedMnemonic!);
 const { address, signTx, signMessage, mnemonic } = wallet;
 
+console.log(`Using network: ${config.network}`);
+console.log(`Backend URL: ${config.backendUrl}`);
+
 const client = new UVerifyClient({ baseUrl: config.backendUrl, signMessage, signTx });
 const { waitFor, fundWallet } = client;
 
@@ -97,40 +97,9 @@ if (isNew) {
   console.log('Restored wallet:', address, '\n');
 }
 
-const reports = [
-  {
-    patientName: 'Sophie Wagner',
-    reportId: 'BMD-2024-10-00123',
-    labName: LAB_NAME,
-    contact: LAB_CONTACT,
-    auditable: false,
-    values: {
-      glucose: '5.4 mmol/L',
-      hba1c: '5.7%',
-      cholesterol: '4.9 mmol/L',
-      hdl: '1.8 mmol/L',
-      ldl: '2.6 mmol/L',
-      triglycerides: '1.2 mmol/L',
-    },
-  },
-  {
-    patientName: 'Thomas Richter',
-    reportId: 'BMD-2024-10-00124',
-    labName: LAB_NAME,
-    contact: LAB_CONTACT,
-    auditable: true,
-    values: {
-      creatinine: '82 μmol/L',
-      urea: '5.8 mmol/L',
-      egfr: '91 mL/min/1.73m²',
-      uric_acid: '340 μmol/L',
-      sodium: '141 mmol/L',
-      potassium: '4.1 mmol/L',
-    },
-  },
-];
+const reports = Array.from({ length: number }, () => buildReport(evaluatePlan(plan)));
 
-console.log(`Issuing ${reports.length} lab reports in a single transaction …`);
+console.log(`Issuing ${reports.length} lab report(s) in a single transaction …`);
 for (const r of reports) {
   console.log(`  • ${r.reportId} — ${r.patientName}`);
 }

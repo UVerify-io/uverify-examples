@@ -1,50 +1,38 @@
 import { Address, Bytes, COSE, PrivateKey, TransactionWitnessSet } from '@evolution-sdk/evolution';
 import { make as makeEvolutionClient } from '@evolution-sdk/evolution/sdk/client/Client';
-import { mainnet, preprod } from '@evolution-sdk/evolution/sdk/client/Chain';
 import { addressFromSeed } from '@evolution-sdk/evolution/sdk/wallet/Derivation';
 import { InsufficientFundsError, UVerifyClient, WaitForTimeoutError } from '@uverify/sdk';
+import { evaluatePlan, getArg, getNetworkConfig, loadEnv, type Plan } from '../helper.ts';
 
-try {
-  const envText = await Deno.readTextFile(new URL('../.env', import.meta.url));
-  for (const line of envText.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    const val = trimmed.slice(eq + 1).trim();
-    if (!Deno.env.has(key)) Deno.env.set(key, val);
-  }
-} catch {
-  // .env not found, using defaults
-}
-
-const network = Deno.env.get('UVERIFY_NETWORK') ?? 'sandbox';
-const config = (() => {
-  if (network === 'mainnet') return {
-    evolutionChain: mainnet,
-    networkId: 1 as const,
-    backendUrl: 'https://api.uverify.io',
-    cexplorerTxUrl: 'https://cexplorer.io/tx',
-    verifyUrl: 'https://app.uverify.io/verify',
-  };
-  if (network === 'preprod') return {
-    evolutionChain: preprod,
-    networkId: 0 as const,
-    backendUrl: 'https://api.preprod.uverify.io',
-    cexplorerTxUrl: 'https://preprod.cexplorer.io/tx',
-    verifyUrl: 'https://app.preprod.uverify.io/verify',
-  };
-  return {
-    evolutionChain: preprod,
-    networkId: 0 as const,
-    backendUrl: 'http://localhost:9090',
-    cexplorerTxUrl: 'http://localhost:3001',
-    verifyUrl: 'http://localhost:3000/verify',
-  };
-})();
+await loadEnv(new URL('../.env', import.meta.url));
+const config = getNetworkConfig();
 
 const WALLET_FILE = new URL('./wallet.txt', import.meta.url);
+
+// ── CLI args ─────────────────────────────────────────────────────────────────
+
+const planPath = getArg('plan');
+const number   = Number(getArg('number') ?? '1');
+
+if (!planPath || Deno.args.includes('--help')) {
+  console.log(
+    'Usage: deno run -A index.ts --plan <plan.json> [--number <N>]\n\n' +
+    'Options:\n' +
+    '  --plan    Path to a plan JSON file (same format as sandbox/simulator)\n' +
+    '  --number  Number of product certificates to issue in one transaction (default: 1)\n' +
+    '  --help    Show this help'
+  );
+  Deno.exit(planPath ? 0 : 1);
+}
+
+const plan: Plan = JSON.parse(await Deno.readTextFile(planPath));
+
+async function sha256hex(data: string): Promise<string> {
+  const buffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
+  return Array.from(new Uint8Array(buffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 function walletFromMnemonic(mnemonic: string) {
   const evolutionClient = makeEvolutionClient(config.evolutionChain).withSeed({ mnemonic, addressType: 'Enterprise' });
@@ -72,13 +60,6 @@ function createWallet() {
   return walletFromMnemonic(mnemonic);
 }
 
-async function sha256hex(data: string): Promise<string> {
-  const buffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
-  return Array.from(new Uint8Array(buffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
 let storedMnemonic: string | undefined;
 try {
   storedMnemonic = (await Deno.readTextFile(WALLET_FILE)).trim();
@@ -89,6 +70,9 @@ try {
 const isNew = storedMnemonic === undefined;
 const wallet = isNew ? createWallet() : walletFromMnemonic(storedMnemonic!);
 const { address, signTx, signMessage, mnemonic } = wallet;
+
+console.log(`Using network: ${config.network}`);
+console.log(`Backend URL: ${config.backendUrl}`);
 
 const client = new UVerifyClient({ baseUrl: config.backendUrl, signMessage, signTx });
 const { waitFor, fundWallet, issueCertificates } = client;
@@ -102,40 +86,41 @@ if (isNew) {
   console.log('Restored wallet:', address, '\n');
 }
 
-const product = {
-  name: 'Organic Cotton Signature Tee',
-  manufacturer: 'EcoWear GmbH',
-  productionDate: '2024-10-01',
-  materialInfo: '100% GOTS-certified organic cotton. Machine wash 30°C. Do not tumble dry.',
-  serialNumber: 'EW-2024-TC-00847',
-  imageUrl: 'https://images.ecowear.example/tc-00847.jpg',
-};
+type ProductData = { name: string; manufacturer: string; productionDate: string; materialInfo: string; serialNumber: string; imageUrl?: string };
+const products = Array.from({ length: number }, () => evaluatePlan(plan)) as ProductData[];
 
-const runId = crypto.randomUUID();
-const hash = await sha256hex(product.manufacturer + product.serialNumber + runId);
+// Each product gets a unique per-item ID so hashes stay distinct even when plan fields are static.
+const items = await Promise.all(products.map(async (p) => {
+  const itemId = crypto.randomUUID();
+  const hash = await sha256hex(p.manufacturer + p.serialNumber + itemId);
+  return { product: p, hash, itemId };
+}));
 
-const metadata = {
-  uverify_template_id: 'productVerification',
-  uverify_update_policy: 'first',
-  productName: product.name,
-  manufacturer: product.manufacturer,
-  productionDate: product.productionDate,
-  materialInfo: product.materialInfo,
-  serialNumber: product.serialNumber,
-  imageUrl: product.imageUrl,
-};
+const certs = items.map(({ product: p, hash }) => ({
+  hash,
+  algorithm: 'SHA-256' as const,
+  metadata: JSON.stringify({
+    uverify_template_id: 'productVerification',
+    uverify_update_policy: 'first',
+    productName: p.name,
+    manufacturer: p.manufacturer,
+    productionDate: p.productionDate,
+    materialInfo: p.materialInfo,
+    serialNumber: p.serialNumber,
+    ...(p.imageUrl ? { imageUrl: p.imageUrl } : {}),
+  }),
+}));
 
-console.log(`Issuing product authentication certificate for "${product.name}" …`);
-console.log(`  Serial : ${product.serialNumber}`);
-console.log(`  Hash   : ${hash}\n`);
+console.log(`Issuing ${certs.length} product authentication certificate(s) in a single transaction …`);
+for (const { product: p } of items) {
+  console.log(`  • "${p.name}" — ${p.serialNumber}`);
+}
 
 async function run(): Promise<string> {
-  const txHash = await issueCertificates(address, [
-    { hash, algorithm: 'SHA-256', metadata: JSON.stringify(metadata) },
-  ]);
-  console.log(`Transaction submitted: ${config.cexplorerTxUrl}/${txHash}`);
+  const txHash = await issueCertificates(address, certs);
+  console.log(`\nTransaction submitted: ${config.cexplorerTxUrl}/${txHash}`);
   await waitFor(txHash);
-  console.log('Product authentication certificate confirmed on-chain.\n');
+  console.log('All certificates confirmed on-chain.\n');
   return txHash;
 }
 
@@ -158,6 +143,10 @@ try {
   }
 }
 
-console.log('Product authentication URL (encode as QR code on the product label):');
-console.log(`  ${config.verifyUrl}/${hash}/${txHash}`);
-console.log('\nDone. The product authentication certificate is permanently anchored on Cardano.');
+console.log('Product authentication URLs (encode as QR code on the product label):');
+for (const { product: p, hash } of items) {
+  console.log(`  ${p.name}`);
+  console.log(`    ${config.verifyUrl}/${hash}/${txHash}\n`);
+}
+
+console.log('Done. All product authentication certificates are permanently anchored on Cardano.');

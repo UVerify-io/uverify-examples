@@ -1,0 +1,9 @@
+{
+  "title":       { "type": "static", "value": "Road Poneglyph Rubbing — Zou Fragment (Translation by N. Robin)" },
+  "issuer":      { "type": "static", "value": "Kozuki Research Foundation, Wano Country" },
+  "author":      { "type": "static", "value": "Nico Robin" },
+  "filename":    { "type": "static", "value": "zou_poneglyph_translation.pdf" },
+  "location":    { "type": "static", "value": "https://kozuki-foundation.wano/research/poneglyphs/zou-fragment" },
+  "file_hint":   { "type": "static", "value": "PDF document, sealed with a Kozuki clan wax stamp" },
+  "description": { "type": "static", "value": "Certified translation of the Road Poneglyph discovered on the back of Zou (Zunisha). Rubbing taken by Nico Robin during the Straw Hat Pirates' visit. Drop the file below to confirm you hold the authentic, untampered translation." }
+}

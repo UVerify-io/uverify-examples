@@ -1,0 +1,6 @@
+{
+  "content":       { "type": "static", "value": "This is a sample document whose existence I wish to prove on the blockchain." },
+  "type":          { "type": "static", "value": "document" },
+  "author":        { "type": "static", "value": "Alice Smith" },
+  "date":          { "type": "static", "value": "2025-01-15" }
+}

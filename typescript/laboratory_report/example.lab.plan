@@ -1,0 +1,13 @@
+{
+  "patientName": { "type": "static",  "value": "Sophie Wagner" },
+  "reportId":    { "type": "static",  "value": "BMD-2024-10-00123" },
+  "labName":     { "type": "static",  "value": "Berlin Medical Diagnostics GmbH" },
+  "contact":     { "type": "static",  "value": "results@bmd-lab.example" },
+  "auditable":   { "type": "static",  "value": false },
+  "a_glucose":      { "type": "static",  "value": "5.4 mmol/L" },
+  "a_hba1c":        { "type": "static",  "value": "5.7%" },
+  "a_cholesterol":  { "type": "static",  "value": "4.9 mmol/L" },
+  "a_hdl":          { "type": "static",  "value": "1.8 mmol/L" },
+  "a_ldl":          { "type": "static",  "value": "2.6 mmol/L" },
+  "a_triglycerides":{ "type": "static",  "value": "1.2 mmol/L" }
+}

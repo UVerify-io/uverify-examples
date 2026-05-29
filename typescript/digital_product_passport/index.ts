@@ -1,50 +1,67 @@
 import { Address, Bytes, COSE, PrivateKey, TransactionWitnessSet } from '@evolution-sdk/evolution';
 import { make as makeEvolutionClient } from '@evolution-sdk/evolution/sdk/client/Client';
-import { mainnet, preprod } from '@evolution-sdk/evolution/sdk/client/Chain';
 import { addressFromSeed } from '@evolution-sdk/evolution/sdk/wallet/Derivation';
 import { InsufficientFundsError, UVerifyClient, WaitForTimeoutError } from '@uverify/sdk';
+import { evaluatePlan, getArg, getNetworkConfig, loadEnv, type Plan } from '../helper.ts';
 
-try {
-  const envText = await Deno.readTextFile(new URL('../.env', import.meta.url));
-  for (const line of envText.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    const val = trimmed.slice(eq + 1).trim();
-    if (!Deno.env.has(key)) Deno.env.set(key, val);
-  }
-} catch {
-  // .env not found, using defaults
-}
-
-const network = Deno.env.get('UVERIFY_NETWORK') ?? 'sandbox';
-const config = (() => {
-  if (network === 'mainnet') return {
-    evolutionChain: mainnet,
-    networkId: 1 as const,
-    backendUrl: 'https://api.uverify.io',
-    cexplorerTxUrl: 'https://cexplorer.io/tx',
-    verifyUrl: 'https://app.uverify.io/verify',
-  };
-  if (network === 'preprod') return {
-    evolutionChain: preprod,
-    networkId: 0 as const,
-    backendUrl: 'https://api.preprod.uverify.io',
-    cexplorerTxUrl: 'https://preprod.cexplorer.io/tx',
-    verifyUrl: 'https://app.preprod.uverify.io/verify',
-  };
-  return {
-    evolutionChain: preprod,
-    networkId: 0 as const,
-    backendUrl: 'http://localhost:9090',
-    cexplorerTxUrl: 'http://localhost:3001',
-    verifyUrl: 'http://localhost:3000/verify',
-  };
-})();
+await loadEnv(new URL('../.env', import.meta.url));
+const config = getNetworkConfig();
 
 const WALLET_FILE = new URL('./wallet.txt', import.meta.url);
+
+// ── CLI args ─────────────────────────────────────────────────────────────────
+
+const planPath = getArg('plan');
+const number   = Number(getArg('number') ?? '1');
+
+if (!planPath || Deno.args.includes('--help')) {
+  console.log(
+    'Usage: deno run -A index.ts --plan <plan.json> [--number <N>]\n\n' +
+    'Options:\n' +
+    '  --plan    Path to a plan JSON file (same format as sandbox/simulator)\n' +
+    '  --number  Number of passports to issue (default: 1, each in its own transaction)\n' +
+    '  --help    Show this help\n\n' +
+    'Material fields use the mat_ prefix (e.g. mat_aluminum: "45%").\n' +
+    'Certification fields use the cert_ prefix (e.g. cert_ce: "CE Marking").\n' +
+    'Both prefixes are stripped when the nested objects are assembled.'
+  );
+  Deno.exit(planPath ? 0 : 1);
+}
+
+const plan: Plan = JSON.parse(await Deno.readTextFile(planPath));
+
+function buildProduct(data: Record<string, string | number | boolean>) {
+  const materials: Record<string, string> = Object.fromEntries(
+    Object.entries(data)
+      .filter(([k]) => k.startsWith('mat_'))
+      .map(([k, v]) => [k.slice(4), String(v)])
+  );
+  const certifications: Record<string, string> = Object.fromEntries(
+    Object.entries(data)
+      .filter(([k]) => k.startsWith('cert_'))
+      .map(([k, v]) => [k.slice(5), String(v)])
+  );
+  return {
+    name:            String(data.name),
+    manufacturer:    String(data.manufacturer),
+    gtin:            String(data.gtin),
+    serialNumber:    String(data.serialNumber),
+    ...(data.model           ? { model: String(data.model) } : {}),
+    ...(data.origin          ? { origin: String(data.origin) } : {}),
+    ...(data.manufactured    ? { manufactured: String(data.manufactured) } : {}),
+    ...(data.contact         ? { contact: String(data.contact) } : {}),
+    ...(data.brandColor      ? { brandColor: String(data.brandColor) } : {}),
+    ...(data.carbonFootprint ? { carbonFootprint: String(data.carbonFootprint) } : {}),
+    ...(data.recycledContent ? { recycledContent: String(data.recycledContent) } : {}),
+    ...(data.energyClass     ? { energyClass: String(data.energyClass) } : {}),
+    ...(data.warranty        ? { warranty: String(data.warranty) } : {}),
+    ...(data.spareParts      ? { spareParts: String(data.spareParts) } : {}),
+    ...(data.repairInfo      ? { repairInfo: String(data.repairInfo) } : {}),
+    ...(data.recycling       ? { recycling: String(data.recycling) } : {}),
+    ...(Object.keys(materials).length      ? { materials } : {}),
+    ...(Object.keys(certifications).length ? { certifications } : {}),
+  };
+}
 
 function walletFromMnemonic(mnemonic: string) {
   const evolutionClient = makeEvolutionClient(config.evolutionChain).withSeed({ mnemonic, addressType: 'Enterprise' });
@@ -83,6 +100,9 @@ const isNew = storedMnemonic === undefined;
 const wallet = isNew ? createWallet() : walletFromMnemonic(storedMnemonic!);
 const { address, signTx, signMessage, mnemonic } = wallet;
 
+console.log(`Using network: ${config.network}`);
+console.log(`Backend URL: ${config.backendUrl}`);
+
 const client = new UVerifyClient({ baseUrl: config.backendUrl, signMessage, signTx });
 const { waitFor, fundWallet } = client;
 
@@ -95,69 +115,42 @@ if (isNew) {
   console.log('Restored wallet:', address, '\n');
 }
 
-const product = {
-  name: 'EcoCharge Powerbank Pro 200',
-  manufacturer: 'GreenTech AG',
-  model: 'EC-200-2024',
-  gtin: '04012345678901',
-  serialNumber: 'EC200-SN-20240815-00847',
-  origin: 'Germany',
-  manufactured: '2024-08-15',
-  contact: 'sustainability@greentech-ag.example',
-  brandColor: '#1a56db',
-};
+console.log(`Issuing ${number} Digital Product Passport(s) …\n`);
 
-console.log(`Issuing Digital Product Passport for "${product.name}" …`);
-console.log(`  GTIN   : ${product.gtin}`);
-console.log(`  Serial : ${product.serialNumber}\n`);
+async function issueOne(data: Record<string, string | number | boolean>) {
+  const product = buildProduct(data);
 
-async function run() {
-  const { txHash, verifyUrl } = await client.apps.issueDigitalProductPassport(address, {
-    ...product,
-    carbonFootprint: '1.2 kg CO₂e',
-    recycledContent: '38%',
-    energyClass: 'A++',
-    warranty: '3 years',
-    spareParts: 'Available until 2034',
-    repairInfo: 'https://greentech-ag.example/repair/ec-200',
-    recycling: 'Return to any EU-authorised WEEE recycling point. Remove battery before disposal.',
-    materials: {
-      aluminum: '45%',
-      recycled_plastic: '38%',
-      lithium_cells: '12%',
-      copper: '5%',
-    },
-    certifications: {
-      ce: 'CE Marking',
-      rohs: 'RoHS Compliant',
-      energy_star: 'Energy Star 8.0',
-      reach: 'REACH Compliant',
-    },
-  });
+  async function run() {
+    const { txHash, verifyUrl } = await client.apps.issueDigitalProductPassport(address, product);
+    console.log(`Transaction submitted: ${config.cexplorerTxUrl}/${txHash}`);
+    await waitFor(txHash);
+    console.log('Digital Product Passport confirmed on-chain.');
+    console.log(`  Product : ${product.name}`);
+    console.log(`  Serial  : ${product.serialNumber}`);
+    console.log(`  Verify  : ${verifyUrl}\n`);
+  }
 
-  console.log(`Transaction submitted: ${config.cexplorerTxUrl}/${txHash}`);
-  await waitFor(txHash);
-  console.log('Digital Product Passport confirmed on-chain.\n');
-
-  console.log('Product passport URL (share with customers / regulators):');
-  console.log(`  ${verifyUrl}`);
-  console.log('\nDone. The Digital Product Passport is permanently anchored on Cardano.');
-}
-
-try {
-  await run();
-} catch (error) {
-  if (error instanceof InsufficientFundsError) {
-    console.log('\nInsufficient funds. Funding wallet and retrying …');
-    await waitFor(await fundWallet(address));
+  try {
     await run();
-  } else if (error instanceof WaitForTimeoutError) {
-    console.error(
-      '\nTimed out waiting for confirmation. The transaction may still be processing.\n' +
-        'Re-run the script to check again or increase the timeout if this happens repeatedly.',
-    );
-    Deno.exit(1);
-  } else {
-    throw error;
+  } catch (error) {
+    if (error instanceof InsufficientFundsError) {
+      console.log('\nInsufficient funds. Funding wallet and retrying …');
+      await waitFor(await fundWallet(address));
+      await run();
+    } else if (error instanceof WaitForTimeoutError) {
+      console.error(
+        '\nTimed out waiting for confirmation. The transaction may still be processing.\n' +
+          'Re-run the script to check again or increase the timeout if this happens repeatedly.',
+      );
+      Deno.exit(1);
+    } else {
+      throw error;
+    }
   }
 }
+
+for (let i = 0; i < number; i++) {
+  await issueOne(evaluatePlan(plan));
+}
+
+console.log('Done. All Digital Product Passports are permanently anchored on Cardano.');

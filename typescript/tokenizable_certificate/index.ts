@@ -1,52 +1,17 @@
 import { Address, Bytes, COSE, PrivateKey, TransactionWitnessSet } from '@evolution-sdk/evolution';
 import { make as makeEvolutionClient } from '@evolution-sdk/evolution/sdk/client/Client';
-import { mainnet, preprod } from '@evolution-sdk/evolution/sdk/client/Chain';
 import { addressFromSeed } from '@evolution-sdk/evolution/sdk/wallet/Derivation';
 import { InsufficientFundsError, UVerifyClient, WaitForTimeoutError } from '@uverify/sdk';
+import { evaluatePlan, getArg, getNetworkConfig, loadEnv, type Plan } from '../helper.ts';
 
-try {
-  const envText = await Deno.readTextFile(new URL('../.env', import.meta.url));
-  for (const line of envText.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    const val = trimmed.slice(eq + 1).trim();
-    if (!Deno.env.has(key)) Deno.env.set(key, val);
-  }
-} catch {
-  // .env not found, using defaults
-}
+await loadEnv(new URL('../.env', import.meta.url));
+const config = getNetworkConfig();
 
-const network = Deno.env.get('UVERIFY_NETWORK') ?? 'sandbox';
-const config = (() => {
-  if (network === 'mainnet') return {
-    evolutionChain: mainnet,
-    networkId: 1 as const,
-    backendUrl: 'https://api.uverify.io',
-    cexplorerTxUrl: 'https://cexplorer.io/tx',
-    chainViewerUrl: 'https://cexplorer.io',
-  };
-  if (network === 'preprod') return {
-    evolutionChain: preprod,
-    networkId: 0 as const,
-    backendUrl: 'https://api.preprod.uverify.io',
-    cexplorerTxUrl: 'https://preprod.cexplorer.io/tx',
-    chainViewerUrl: 'https://preprod.cexplorer.io',
-  };
-  return {
-    evolutionChain: preprod,
-    networkId: 0 as const,
-    backendUrl: 'http://localhost:9090',
-    cexplorerTxUrl: 'http://localhost:3001',
-    chainViewerUrl: 'http://localhost:3001',
-  };
-})();
-
-const WALLET_FILE = new URL('./wallet.txt', import.meta.url);
+const WALLET_FILE           = new URL('./wallet.txt', import.meta.url);
 const RECIPIENT_WALLET_FILE = new URL('./recipient_wallet.txt', import.meta.url);
-const SEED_UTXO_FILE = new URL('./seed_utxo.txt', import.meta.url);
+const SEED_UTXO_FILE        = new URL('./seed_utxo.txt', import.meta.url);
+
+// ── Wallet helpers ────────────────────────────────────────────────────────────
 
 function walletFromMnemonic(mnemonic: string) {
   const evolutionClient = makeEvolutionClient(config.evolutionChain).withSeed({ mnemonic, addressType: 'Enterprise' });
@@ -66,7 +31,7 @@ function walletFromMnemonic(mnemonic: string) {
     return Promise.resolve({ key: Bytes.toHex(key), signature: Bytes.toHex(signature) });
   };
 
-  // For enterprise testnet addresses: header byte 0x60 + 28-byte payment key hash
+  // Enterprise address: header byte 0x60 + 28-byte payment key hash
   const paymentKeyHash = addressHex.slice(2, 58);
 
   return { address: addressBech32, mnemonic, signTx, signMessage, paymentKeyHash };
@@ -78,41 +43,42 @@ function createWallet() {
 }
 
 async function sha256hex(data: Uint8Array | string): Promise<string> {
-  const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+  const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data.slice();
   const buffer = await crypto.subtle.digest('SHA-256', bytes);
   return Array.from(new Uint8Array(buffer))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 }
 
-const args = Deno.args;
-const command = args[0];
+// ── CLI args ─────────────────────────────────────────────────────────────────
 
-function getArg(flag: string): string | undefined {
-  const idx = args.indexOf(flag);
-  return idx !== -1 && idx + 1 < args.length ? args[idx + 1] : undefined;
-}
+const command = Deno.args[0];
 
 function printUsage(): void {
   console.error(
     'Usage:\n' +
-    '  deno run -A index.ts create --asset-name <name>\n' +
-    '                              (--document-text <text> | --document-path <path>)\n' +
+    '  deno run -A index.ts create --plan <plan.json>\n' +
+    '                              [--number <N>]\n' +
     '                              [--recipient-wallet <addr>]\n' +
     '                              [--init-utxo-tx-hash <hash> --init-utxo-output-index <idx>]\n' +
-    '                              [--issuer-name <name>] [--description <text>]\n' +
-    '                              [--asset-class <class>] [--ipfs-image <cid>]\n' +
+    '                              [--asset-name <name>] [--document-text <text>]\n' +
+    '                              [--document-path <path>] [--issuer-name <name>]\n' +
+    '                              [--description <text>] [--asset-class <class>]\n' +
+    '                              [--ipfs-image <cid>]\n' +
     '\n' +
     '  deno run -A index.ts redeem --asset-name <name> --key <hash>\n' +
     '                              [--recipient-wallet <addr>]\n' +
     '                              [--init-utxo-tx-hash <hash> --init-utxo-output-index <idx>]\n' +
     '\n' +
     'Notes:\n' +
+    '  - --plan loads certificate fields (assetName, documentText, issuerName,\n' +
+    '    description, assetClass, ipfsImage) from a plan JSON file.\n' +
+    '    CLI flags override plan values when both are provided.\n' +
+    '  - --number N issues N certificates in N transactions (create only).\n' +
     '  - Issuer wallet is loaded from / saved to wallet.txt.\n' +
     '  - Recipient wallet is loaded from / saved to recipient_wallet.txt.\n' +
     '  - Seed UTxO is loaded from / saved to seed_utxo.txt.\n' +
-    '    Provide --init-utxo-tx-hash and --init-utxo-output-index on first run\n' +
-    `    (use the chain viewer at ${config.chainViewerUrl} to find a UTxO).`,
+    `    Find a UTxO in your issuer wallet via the chain viewer at ${config.chainViewerUrl}.`,
   );
 }
 
@@ -121,20 +87,31 @@ if (command !== 'create' && command !== 'redeem') {
   Deno.exit(1);
 }
 
-const assetName = getArg('--asset-name');
-const ownerAddress = getArg('--recipient-wallet');
-const documentText = getArg('--document-text');
-const documentPath = getArg('--document-path');
-const argTxHash = getArg('--init-utxo-tx-hash');
-const argOutputIndex = getArg('--init-utxo-output-index');
-const argKey = getArg('--key');
-const argIssuerName = getArg('--issuer-name');
-const argDescription = getArg('--description');
-const argIpfsImage = getArg('--ipfs-image');
-const argAssetClass = getArg('--asset-class');
+const planPath       = getArg('plan');
+const number         = Number(getArg('number') ?? '1');
+const ownerAddress   = getArg('recipient-wallet');
+const argTxHash      = getArg('init-utxo-tx-hash');
+const argOutputIndex = getArg('init-utxo-output-index');
+const argKey         = getArg('key');
+
+// Load plan (optional for create, unused for redeem)
+let planData: Record<string, string | number | boolean> = {};
+if (planPath) {
+  const plan: Plan = JSON.parse(await Deno.readTextFile(planPath));
+  planData = evaluatePlan(plan);
+}
+
+// CLI flags override plan values
+const assetName    = getArg('asset-name')    ?? (planData.assetName    ? String(planData.assetName)    : undefined);
+const documentText = getArg('document-text') ?? (planData.documentText ? String(planData.documentText) : undefined);
+const documentPath = getArg('document-path');
+const argIssuerName  = getArg('issuer-name')  ?? (planData.issuerName  ? String(planData.issuerName)  : undefined);
+const argDescription = getArg('description')  ?? (planData.description ? String(planData.description) : undefined);
+const argAssetClass  = getArg('asset-class')  ?? (planData.assetClass  ? String(planData.assetClass)  : undefined);
+const argIpfsImage   = getArg('ipfs-image')   ?? (planData.ipfsImage   ? String(planData.ipfsImage)   : undefined);
 
 if (!assetName) {
-  console.error('Error: --asset-name is required.');
+  console.error('Error: --asset-name is required (or provide it via --plan with an "assetName" field).');
   printUsage();
   Deno.exit(1);
 }
@@ -144,8 +121,8 @@ if (command === 'create') {
     console.error('Error: --document-text and --document-path are mutually exclusive.');
     Deno.exit(1);
   }
-  if (!documentText && !documentPath) {
-    console.error('Error: one of --document-text or --document-path is required for create.');
+  if (!documentText && !documentPath && !planData.documentText) {
+    console.error('Error: provide --document-text, --document-path, or a plan with a "documentText" field.');
     printUsage();
     Deno.exit(1);
   }
@@ -156,6 +133,8 @@ if (command === 'redeem' && !argKey) {
   printUsage();
   Deno.exit(1);
 }
+
+// ── Wallet setup ──────────────────────────────────────────────────────────────
 
 let issuerMnemonic: string | undefined;
 try {
@@ -205,6 +184,8 @@ const assetNameHex = Array.from(new TextEncoder().encode(assetName))
   .map((b) => b.toString(16).padStart(2, '0'))
   .join('');
 
+// ── Init UTxO resolution ──────────────────────────────────────────────────────
+
 let initUtxoTxHash: string;
 let initUtxoOutputIndex: number;
 
@@ -237,67 +218,87 @@ if (argTxHash && argOutputIndex !== undefined) {
   await Deno.writeTextFile(SEED_UTXO_FILE, `${initUtxoTxHash}:${initUtxoOutputIndex}`);
 }
 
+// ── Create command ────────────────────────────────────────────────────────────
+
 if (command === 'create') {
-  let key: string;
-  if (documentPath) {
-    const fileBytes = await Deno.readFile(documentPath);
-    key = await sha256hex(fileBytes);
-    console.log(`\nDocument hash (from file ${documentPath}): ${key}`);
-  } else {
-    key = await sha256hex(documentText!);
-    console.log(`\nDocument hash (from text): ${key}`);
-  }
+  async function issueOne(planOverride?: Record<string, string | number | boolean>) {
+    const data = planOverride ?? planData;
 
-  console.log('Issuing tokenizable certificate …\n');
+    let key: string;
+    const docText  = getArg('document-text') ?? (data.documentText ? String(data.documentText) : undefined);
+    const docPath  = getArg('document-path');
 
-  async function runCreate() {
-    const deployerPubKeyHash = issuerWallet.paymentKeyHash;
-
-    const certMetadata: Record<string, string> = { asset_name: assetName! };
-    if (argIssuerName) certMetadata.issuer_name = argIssuerName;
-    if (argDescription) certMetadata.description = argDescription;
-    if (argAssetClass) certMetadata.asset_class = argAssetClass;
-    if (argIpfsImage) certMetadata.ipfs_image = argIpfsImage;
-
-    const result = await client.apps.issueTokenizableCertificate(issuerAddress, {
-      certificate: {
-        hash: key,
-        metadata: JSON.stringify(certMetadata),
-      },
-      ownerAddress: effectiveRecipientAddress,
-      assetNameHex,
-      initUtxoTxHash,
-      initUtxoOutputIndex,
-      config: {
-        deployer: deployerPubKeyHash,
-        allowedInserters: [deployerPubKeyHash],
-      },
-    });
-
-    console.log(`Transaction submitted: ${config.cexplorerTxUrl}/${result.txHash}`);
-    await waitFor(result.txHash);
-    console.log('Certificate confirmed on-chain.');
-    console.log(`Verify at: ${result.verifyUrl}`);
-    console.log(`\nTo redeem, run:\n  deno run -A index.ts redeem --asset-name "${assetName}" --recipient-wallet "${effectiveRecipientAddress}" --key "${key}"`);
-
-    const status = await client.apps.getTokenizableCertificateStatus(key, initUtxoTxHash, initUtxoOutputIndex);
-    console.log(`Claimed: ${status.claimed}`);
-  }
-  try {
-    await runCreate();
-  } catch (error) {
-    if (error instanceof InsufficientFundsError) {
-      console.log('\nInsufficient funds. Funding issuer wallet and retrying …');
-      await waitFor(await fundWallet(issuerAddress));
-      await runCreate();
-    } else if (error instanceof WaitForTimeoutError) {
-      console.error('Timed out waiting for confirmation. Re-run to check again.');
-      Deno.exit(1);
+    if (docPath) {
+      const fileBytes = await Deno.readFile(docPath);
+      key = await sha256hex(fileBytes);
+      console.log(`\nDocument hash (from file ${docPath}): ${key}`);
     } else {
-      throw error;
+      key = await sha256hex(docText!);
+      console.log(`\nDocument hash: ${key}`);
+    }
+
+    const name        = getArg('asset-name')    ?? (data.assetName    ? String(data.assetName)    : assetName!);
+    const issuerName  = getArg('issuer-name')   ?? (data.issuerName   ? String(data.issuerName)   : argIssuerName);
+    const description = getArg('description')   ?? (data.description  ? String(data.description)  : argDescription);
+    const assetClass  = getArg('asset-class')   ?? (data.assetClass   ? String(data.assetClass)   : argAssetClass);
+    const ipfsImage   = getArg('ipfs-image')    ?? (data.ipfsImage    ? String(data.ipfsImage)    : argIpfsImage);
+
+    const itemAssetNameHex = Array.from(new TextEncoder().encode(name))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    console.log('Issuing tokenizable certificate …\n');
+
+    async function runCreate() {
+      const result = await client.apps.issueTokenizableCertificate(issuerAddress, {
+        key,
+        ownerPubKeyHash: recipientWallet.paymentKeyHash,
+        assetNameHex: itemAssetNameHex,
+        initUtxoTxHash,
+        initUtxoOutputIndex,
+      });
+
+      console.log(`Transaction submitted: ${config.cexplorerTxUrl}/${result.txHash}`);
+      await waitFor(result.txHash);
+      console.log('Certificate confirmed on-chain.');
+      if (issuerName)  console.log(`  Issuer : ${issuerName}`);
+      if (description) console.log(`  Desc   : ${description}`);
+      if (assetClass)  console.log(`  Class  : ${assetClass}`);
+      if (ipfsImage)   console.log(`  Image  : ${ipfsImage}`);
+      console.log(`  Verify : ${result.verifyUrl}`);
+      console.log(`\nTo redeem, run:\n  deno run -A index.ts redeem --asset-name "${name}" --key "${key}"`);
+
+      const status = await client.apps.getTokenizableCertificateStatus(key, initUtxoTxHash, initUtxoOutputIndex);
+      console.log(`Claimed: ${status.claimed}`);
+    }
+
+    try {
+      await runCreate();
+    } catch (error) {
+      if (error instanceof InsufficientFundsError) {
+        console.log('\nInsufficient funds. Funding issuer wallet and retrying …');
+        await waitFor(await fundWallet(issuerAddress));
+        await runCreate();
+      } else if (error instanceof WaitForTimeoutError) {
+        console.error('Timed out waiting for confirmation. Re-run to check again.');
+        Deno.exit(1);
+      } else {
+        throw error;
+      }
     }
   }
+
+  if (planPath && number > 1) {
+    const plan: Plan = JSON.parse(await Deno.readTextFile(planPath));
+    for (let i = 0; i < number; i++) {
+      await issueOne(evaluatePlan(plan));
+    }
+  } else {
+    await issueOne();
+  }
 }
+
+// ── Redeem command ────────────────────────────────────────────────────────────
 
 if (command === 'redeem') {
   const key = argKey!;
@@ -324,6 +325,7 @@ if (command === 'redeem') {
     console.log(`Claimed: ${status.claimed}`);
     if (status.owner) console.log(`Owner: ${status.owner}`);
   }
+
   try {
     await runRedeem();
   } catch (error) {

@@ -1,0 +1,8 @@
+{
+  "petName":   { "type": "static", "value": "Luna" },
+  "ownerName": { "type": "static", "value": "Emma Schneider" },
+  "phone":     { "type": "static", "value": "+49 30 12345678" },
+  "species":   { "type": "static", "value": "Dog" },
+  "breed":     { "type": "static", "value": "Golden Retriever" },
+  "note":      { "type": "static", "value": "Very friendly! Please call if found." }
+}
