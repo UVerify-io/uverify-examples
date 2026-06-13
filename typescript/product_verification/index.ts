@@ -86,14 +86,12 @@ if (isNew) {
   console.log('Restored wallet:', address, '\n');
 }
 
-type ProductData = { name: string; manufacturer: string; productionDate: string; materialInfo: string; serialNumber: string; imageUrl?: string };
+type ProductData = { name: string; manufacturer: string; productionDate: string; materialInfo: string; serialNumber: string; nfc_public_key: string; imageUrl?: string };
 const products = Array.from({ length: number }, () => evaluatePlan(plan)) as ProductData[];
 
-// Each product gets a unique per-item ID so hashes stay distinct even when plan fields are static.
 const items = await Promise.all(products.map(async (p) => {
-  const itemId = crypto.randomUUID();
-  const hash = await sha256hex(p.manufacturer + p.serialNumber + itemId);
-  return { product: p, hash, itemId };
+  const hash = await sha256hex(p.nfc_public_key);
+  return { product: p, hash };
 }));
 
 const certs = items.map(({ product: p, hash }) => ({
@@ -144,9 +142,9 @@ try {
 }
 
 console.log('Product authentication URLs (encode as QR code on the product label):');
-for (const { product: p, hash } of items) {
+for (const { product: p } of items) {
   console.log(`  ${p.name}`);
-  console.log(`    ${config.verifyUrl}/${hash}/${txHash}\n`);
+  console.log(`    ${config.verifyUrl}/verify?message=${p.nfc_public_key}\n`);
 }
 
 console.log('Done. All product authentication certificates are permanently anchored on Cardano.');

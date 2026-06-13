@@ -123,9 +123,12 @@ def seed_chainstate() -> None:
     result = subprocess.run(
         [
             "docker", "run", "--rm",
+            "-u", "root",
             "-v", f"{CHAINSTATE_VOLUME}:/chainstate",
             "uverify/sandbox-node:latest",
-            "sh", "-c", "cp -a /app/snapshots/uverify-base-state/checkpoint/. /chainstate/",
+            "sh", "-c",
+            "cp -a /app/snapshots/uverify-base-state/checkpoint/. /chainstate/"
+            " && chown -R 10001:10001 /chainstate",
         ],
         capture_output=True,
         text=True,

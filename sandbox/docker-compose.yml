@@ -77,7 +77,7 @@ services:
   # Full chain indexer that syncs from yano's N2N port and exposes a rich REST
   # API. Phoenix Explorer uses this instead of yano's minimal Blockfrost stub.
   yaci-store:
-    image: bloxbean/yaci-store:2.0.0
+    image: bloxbean/yaci-store:2.0.1
     container_name: uverify-sandbox-yaci-store
     restart: unless-stopped
     environment:

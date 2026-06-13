@@ -1,7 +1,7 @@
 FROM node:20-alpine AS build
 RUN apk add --no-cache git
 WORKDIR /app
-RUN git clone --depth 1 https://github.com/bloxbean/yaci-devkit.git . && \
+RUN git clone --branch v0.10.6 --depth 1 https://github.com/bloxbean/yaci-devkit.git . && \
     cd applications/viewer && \
     npm ci && \
     npm run build
