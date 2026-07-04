@@ -122,14 +122,13 @@ async function run(): Promise<string> {
   return txHash;
 }
 
-let txHash: string;
 try {
-  txHash = await run();
+  await run();
 } catch (error) {
   if (error instanceof InsufficientFundsError) {
     console.log('\nInsufficient funds. Funding wallet and retrying …');
     await waitFor(await fundWallet(address));
-    txHash = await run();
+    await run();
   } else if (error instanceof WaitForTimeoutError) {
     console.error(
       '\nTimed out waiting for confirmation. The transaction may still be processing.\n' +

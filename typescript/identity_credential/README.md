@@ -44,7 +44,7 @@ const proof = await client.sign(`cardano:${paymentCredentialHex}`);
 ## Prerequisites
 
 - [Deno](https://deno.com) 2+
-- UVerify sandbox running (`./sandbox.sh start` in `uverify-examples/`) **or** preprod backend
+- UVerify sandbox running (`uv run sandbox.py start` in `uverify-examples/`) **or** preprod backend
 
 ## Run (sandbox, no KERIA)
 

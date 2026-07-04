@@ -24,7 +24,7 @@ Start the local sandbox before running examples against it:
 
 ```bash
 cd ..
-./sandbox.sh start
+uv run sandbox.py start
 ```
 
 See the [sandbox README](../README.md#sandbox) for details.
